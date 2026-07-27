@@ -18,6 +18,8 @@ type EngineState =
   | "downloading"
   | "unavailable";
 
+type UseMode = "local" | "chatgpt" | "other";
+
 type StudyConfig = {
   subject: string;
   topic: string;
@@ -399,6 +401,8 @@ export default function Home() {
   const [progressText, setProgressText] = useState("");
   const [result, setResult] = useState("");
   const [resultMode, setResultMode] = useState<"summary" | "prompt">("summary");
+  const [useMode, setUseMode] = useState<UseMode | null>(null);
+  const [showModeChooser, setShowModeChooser] = useState(true);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -523,6 +527,30 @@ export default function Home() {
         ? current.focus.filter((focus) => focus !== item)
         : [...current.focus, item],
     }));
+  }
+
+  function chooseMode(mode: UseMode) {
+    setUseMode(mode);
+    setResultMode(mode === "local" ? "summary" : "prompt");
+    setShowModeChooser(false);
+    setError("");
+    setProgressText("");
+    window.setTimeout(() => document.querySelector("#crear")?.scrollIntoView({ behavior: "smooth" }), 120);
+  }
+
+  function prepareExternalPackage() {
+    setError("");
+    setCopied(false);
+    setResultMode("prompt");
+    if (combinedText.length < 500) {
+      setError("Agregá al menos unas páginas de material o pegá un texto más extenso.");
+      return;
+    }
+    setProgressText(
+      useMode === "chatgpt"
+        ? "Paquete listo. Copiá la instrucción o descargá el material para abrirlo en ChatGPT."
+        : "Paquete listo. Copiá la instrucción o descargá el material para usarlo en la IA que prefieras.",
+    );
   }
 
   async function generateIntelligentSummary() {
@@ -741,6 +769,34 @@ ${questions}
     URL.revokeObjectURL(url);
   }
 
+  function downloadExternalPackage() {
+    if (combinedText.length < 500) {
+      setError("Agregá material antes de descargar el paquete.");
+      return;
+    }
+    const destination = useMode === "chatgpt" ? "ChatGPT" : "otra IA";
+    const packageText = `# Paquete de estudio para ${destination}
+
+## Instrucción
+
+${promptText}
+
+---
+
+## Material de estudio
+
+${combinedText}
+`;
+    const blob = new Blob([packageText], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download =
+      useMode === "chatgpt" ? "paquete-para-chatgpt.md" : "paquete-para-otra-ia.md";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
   const engineCopy =
     engine === "checking"
       ? "Comprobando IA local"
@@ -756,6 +812,73 @@ ${questions}
 
   return (
     <main>
+      {showModeChooser && (
+        <div className="mode-overlay">
+          <section
+            className="mode-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="mode-title"
+            aria-describedby="mode-description"
+          >
+            <div className="mode-dialog-heading">
+              <span className="mode-brand"><span className="brand-mark">A</span> Apunte Claro</span>
+              <span className="mode-kicker">Gratis · sin cuenta para entrar</span>
+              <h2 id="mode-title">Elegí cómo querés resumir</h2>
+              <p id="mode-description">
+                En todos los casos, primero preparás el material acá. Vos decidís si se procesa
+                en tu dispositivo o si lo llevás a otra herramienta.
+              </p>
+            </div>
+
+            <div className="mode-options">
+              <button type="button" className="mode-option mode-option-local" onClick={() => chooseMode("local")}>
+                <span className="mode-icon" aria-hidden="true">⌁</span>
+                <span className="mode-option-copy">
+                  <strong>IA local · sin cuenta</strong>
+                  <small>Recomendado para privacidad</small>
+                  <span>Resume en Chrome compatible. Tus apuntes no salen del dispositivo.</span>
+                </span>
+                <span className="mode-arrow" aria-hidden="true">→</span>
+              </button>
+
+              <button type="button" className="mode-option" onClick={() => chooseMode("chatgpt")}>
+                <span className="mode-icon" aria-hidden="true">✦</span>
+                <span className="mode-option-copy">
+                  <strong>Preparar para ChatGPT</strong>
+                  <small>Sin cuenta según disponibilidad y región</small>
+                  <span>Genera una instrucción y un archivo para que vos elijas qué compartir.</span>
+                </span>
+                <span className="mode-arrow" aria-hidden="true">→</span>
+              </button>
+
+              <button type="button" className="mode-option" onClick={() => chooseMode("other")}>
+                <span className="mode-icon" aria-hidden="true">◇</span>
+                <span className="mode-option-copy">
+                  <strong>Preparar para otra IA</strong>
+                  <small>Gemini, Claude, Copilot u otra</small>
+                  <span>Descargá el mismo paquete abierto y usalo donde prefieras.</span>
+                </span>
+                <span className="mode-arrow" aria-hidden="true">→</span>
+              </button>
+            </div>
+
+            <p className="mode-privacy">
+              Apunte Claro no pide cuenta ni envía nada por su cuenta. Si una plataforma externa
+              te solicita acceso, siempre podés volver y elegir IA local.
+            </p>
+            <div className="mode-links">
+              <a href="https://www.educalive.com/blog/como-hacer-resumen" target="_blank" rel="noreferrer">
+                Método de estudio inspirado en EducAlive ↗
+              </a>
+              <a href="https://help.openai.com/en/articles/9125172-the-chatgpt-home-page" target="_blank" rel="noreferrer">
+                Disponibilidad de ChatGPT sin cuenta ↗
+              </a>
+            </div>
+          </section>
+        </div>
+      )}
+
       <nav className="topbar" aria-label="Navegación principal">
         <a className="brand" href="#inicio" aria-label="Apunte Claro, inicio">
           <span className="brand-mark">A</span>
@@ -764,6 +887,13 @@ ${questions}
         <div className="nav-links">
           <a href="#crear">Crear resumen</a>
           <a href="#metodo">Cómo funciona</a>
+          <button type="button" className="mode-switch" onClick={() => setShowModeChooser(true)}>
+            {useMode === "chatgpt"
+              ? "Modo: ChatGPT"
+              : useMode === "other"
+                ? "Modo: otra IA"
+                : "Cambiar modo"}
+          </button>
           <span className={`engine-pill engine-${engine}`}>
             <span className="status-dot" />
             {engineCopy}
@@ -1054,32 +1184,47 @@ ${questions}
                 <span className="step-number">3</span>
                 <div>
                   <h3>Generá y revisá</h3>
-                  <p>La IA propone; vos confirmás que sirva para estudiar.</p>
+                  <p>
+                    {useMode === "local"
+                      ? "La IA propone; vos confirmás que sirva para estudiar."
+                      : "Preparamos el pedido; vos decidís dónde y qué compartir."}
+                  </p>
                 </div>
               </div>
 
-              <div className="result-tabs" role="tablist" aria-label="Tipo de resultado">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={resultMode === "summary"}
-                  className={resultMode === "summary" ? "is-active" : ""}
-                  onClick={() => setResultMode("summary")}
-                >
-                  Resumen
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={resultMode === "prompt"}
-                  className={resultMode === "prompt" ? "is-active" : ""}
-                  onClick={() => setResultMode("prompt")}
-                >
-                  Instrucción para otra IA
-                </button>
-              </div>
+              {useMode === "local" ? (
+                <div className="result-tabs" role="tablist" aria-label="Tipo de resultado">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={resultMode === "summary"}
+                    className={resultMode === "summary" ? "is-active" : ""}
+                    onClick={() => setResultMode("summary")}
+                  >
+                    Resumen
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={resultMode === "prompt"}
+                    className={resultMode === "prompt" ? "is-active" : ""}
+                    onClick={() => setResultMode("prompt")}
+                  >
+                    Instrucción para otra IA
+                  </button>
+                </div>
+              ) : (
+                <div className="selected-mode-banner">
+                  <span aria-hidden="true">{useMode === "chatgpt" ? "✦" : "◇"}</span>
+                  <div>
+                    <strong>{useMode === "chatgpt" ? "Listo para ChatGPT" : "Listo para otra IA"}</strong>
+                    <small>El material no se envía automáticamente.</small>
+                  </div>
+                  <button type="button" onClick={() => setShowModeChooser(true)}>Cambiar</button>
+                </div>
+              )}
 
-              {resultMode === "summary" ? (
+              {useMode === "local" && resultMode === "summary" ? (
                 result ? (
                   <article className="result-output">
                     <pre>{result}</pre>
@@ -1110,9 +1255,15 @@ ${questions}
                   type="button"
                   className="primary-button generate-button"
                   disabled={isGenerating || isReading}
-                  onClick={generateIntelligentSummary}
+                  onClick={useMode === "local" ? generateIntelligentSummary : prepareExternalPackage}
                 >
-                  {isGenerating ? "Trabajando por secciones…" : "Generar resumen inteligente"}
+                  {isGenerating
+                    ? "Trabajando por secciones…"
+                    : useMode === "chatgpt"
+                      ? "Preparar para ChatGPT"
+                      : useMode === "other"
+                        ? "Preparar para otra IA"
+                        : "Generar resumen inteligente"}
                 </button>
                 <button
                   type="button"
@@ -1127,12 +1278,36 @@ ${questions}
                     Descargar .md
                   </button>
                 )}
+                {useMode && useMode !== "local" && (
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={combinedText.length < 500}
+                    onClick={downloadExternalPackage}
+                  >
+                    Descargar paquete
+                  </button>
+                )}
+                {useMode === "chatgpt" && (
+                  <a
+                    className="secondary-button external-button"
+                    href="https://chatgpt.com/"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Abrir ChatGPT ↗
+                  </a>
+                )}
               </div>
 
               <p className="fine-print">
-                {engine === "unavailable"
-                  ? "En este navegador podés preparar el pedido y obtener un mapa previo. Para la IA local usá Chrome actualizado en una computadora."
-                  : "La primera vez, Chrome puede descargar su modelo de IA. Después puede funcionar sin conexión y el material no sale del dispositivo."}
+                {useMode === "chatgpt"
+                  ? "Apunte Claro no envía nada. ChatGPT puede funcionar sin cuenta según la región; sin iniciar sesión, el chat no se guarda."
+                  : useMode === "other"
+                    ? "Apunte Claro no envía nada. La disponibilidad y los requisitos dependen de la herramienta que elijas."
+                    : engine === "unavailable"
+                      ? "En este navegador podés preparar el pedido y obtener un mapa previo. Para la IA local usá Chrome actualizado en una computadora."
+                      : "La primera vez, Chrome puede descargar su modelo de IA. Después puede funcionar sin conexión y el material no sale del dispositivo."}
               </p>
             </section>
           </aside>
