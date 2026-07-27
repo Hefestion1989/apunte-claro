@@ -19,6 +19,7 @@ type EngineState =
   | "unavailable";
 
 type UseMode = "local" | "chatgpt" | "other";
+type ExternalProvider = "gemini" | "claude" | "copilot" | "other";
 
 type StudyConfig = {
   subject: string;
@@ -33,6 +34,40 @@ type StudyConfig = {
 
 const MAX_FILE_BYTES = 18 * 1024 * 1024;
 const MAX_TOTAL_CHARS = 280_000;
+
+const EXTERNAL_PROVIDERS: Record<
+  ExternalProvider,
+  { name: string; icon: string; url: string | null; accountNote: string; description: string }
+> = {
+  gemini: {
+    name: "Gemini",
+    icon: "✦",
+    url: "https://gemini.google.com/",
+    accountNote: "Algunas funciones pueden usarse sin cuenta; Google puede pedir acceso para otras.",
+    description: "La IA de Google. Algunas funciones web están disponibles sin iniciar sesión.",
+  },
+  copilot: {
+    name: "Copilot",
+    icon: "◈",
+    url: "https://copilot.microsoft.com/",
+    accountNote: "Puede pedir una cuenta para guardar chats o usar funciones adicionales.",
+    description: "La IA de Microsoft. Se abre directamente en el navegador.",
+  },
+  claude: {
+    name: "Claude",
+    icon: "C",
+    url: "https://claude.ai/",
+    accountNote: "Claude requiere crear una cuenta, aunque tiene una opción gratuita.",
+    description: "La IA de Anthropic. Tiene un plan gratuito, pero pide registro.",
+  },
+  other: {
+    name: "Otra herramienta",
+    icon: "◇",
+    url: null,
+    accountNote: "La cuenta, gratuidad y límites dependen de la herramienta elegida.",
+    description: "Descargá un archivo universal para usarlo en cualquier asistente.",
+  },
+};
 
 const PURPOSE_LABELS: Record<StudyConfig["purpose"], string> = {
   comprender: "Comprender desde cero",
@@ -402,7 +437,9 @@ export default function Home() {
   const [result, setResult] = useState("");
   const [resultMode, setResultMode] = useState<"summary" | "prompt">("summary");
   const [useMode, setUseMode] = useState<UseMode | null>(null);
+  const [externalProvider, setExternalProvider] = useState<ExternalProvider | null>(null);
   const [showModeChooser, setShowModeChooser] = useState(true);
+  const [chooserStep, setChooserStep] = useState<"mode" | "provider">("mode");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -458,6 +495,9 @@ export default function Home() {
       ),
     [config, materials],
   );
+  const selectedProvider = externalProvider ? EXTERNAL_PROVIDERS[externalProvider] : null;
+  const destinationName =
+    useMode === "chatgpt" ? "ChatGPT" : selectedProvider?.name ?? "otra IA";
 
   const suggestions = useMemo(() => {
     const items: string[] = [];
@@ -530,12 +570,33 @@ export default function Home() {
   }
 
   function chooseMode(mode: UseMode) {
+    if (mode === "other") {
+      setChooserStep("provider");
+      return;
+    }
     setUseMode(mode);
+    setExternalProvider(null);
     setResultMode(mode === "local" ? "summary" : "prompt");
     setShowModeChooser(false);
     setError("");
     setProgressText("");
     window.setTimeout(() => document.querySelector("#crear")?.scrollIntoView({ behavior: "smooth" }), 120);
+  }
+
+  function chooseExternalProvider(provider: ExternalProvider) {
+    setUseMode("other");
+    setExternalProvider(provider);
+    setResultMode("prompt");
+    setShowModeChooser(false);
+    setChooserStep("mode");
+    setError("");
+    setProgressText("");
+    window.setTimeout(() => document.querySelector("#crear")?.scrollIntoView({ behavior: "smooth" }), 120);
+  }
+
+  function openModeChooser() {
+    setChooserStep("mode");
+    setShowModeChooser(true);
   }
 
   function prepareExternalPackage() {
@@ -549,7 +610,7 @@ export default function Home() {
     setProgressText(
       useMode === "chatgpt"
         ? "Paquete listo. Copiá la instrucción o descargá el material para abrirlo en ChatGPT."
-        : "Paquete listo. Copiá la instrucción o descargá el material para usarlo en la IA que prefieras.",
+        : `Paquete listo. Copiá la instrucción o descargá el material para abrirlo en ${destinationName}.`,
     );
   }
 
@@ -774,7 +835,7 @@ ${questions}
       setError("Agregá material antes de descargar el paquete.");
       return;
     }
-    const destination = useMode === "chatgpt" ? "ChatGPT" : "otra IA";
+    const destination = destinationName;
     const packageText = `# Paquete de estudio para ${destination}
 
 ## Instrucción
@@ -787,12 +848,14 @@ ${promptText}
 
 ${combinedText}
 `;
-    const blob = new Blob([packageText], { type: "text/markdown;charset=utf-8" });
+    const blob = new Blob([packageText], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download =
-      useMode === "chatgpt" ? "paquete-para-chatgpt.md" : "paquete-para-otra-ia.md";
+    anchor.download = `paquete-para-${destination
+      .toLowerCase()
+      .replace(/[^a-z0-9áéíóúñ]+/gi, "-")
+      .replace(/^-|-$/g, "")}.txt`;
     anchor.click();
     URL.revokeObjectURL(url);
   }
@@ -821,60 +884,102 @@ ${combinedText}
             aria-labelledby="mode-title"
             aria-describedby="mode-description"
           >
-            <div className="mode-dialog-heading">
-              <span className="mode-brand"><span className="brand-mark">A</span> Apunte Claro</span>
-              <span className="mode-kicker">Gratis · sin cuenta para entrar</span>
-              <h2 id="mode-title">Elegí cómo querés resumir</h2>
-              <p id="mode-description">
-                En todos los casos, primero preparás el material acá. Vos decidís si se procesa
-                en tu dispositivo o si lo llevás a otra herramienta.
-              </p>
-            </div>
+            {chooserStep === "mode" ? (
+              <>
+                <div className="mode-dialog-heading">
+                  <span className="mode-brand"><span className="brand-mark">A</span> Apunte Claro</span>
+                  <span className="mode-kicker">Gratis · sin cuenta para entrar</span>
+                  <h2 id="mode-title">Elegí cómo querés resumir</h2>
+                  <p id="mode-description">
+                    No necesitás entender de IA. Elegí una opción y Apunte Claro te va guiando.
+                  </p>
+                </div>
 
-            <div className="mode-options">
-              <button type="button" className="mode-option mode-option-local" onClick={() => chooseMode("local")}>
-                <span className="mode-icon" aria-hidden="true">⌁</span>
-                <span className="mode-option-copy">
-                  <strong>IA local · sin cuenta</strong>
-                  <small>Recomendado para privacidad</small>
-                  <span>Resume en Chrome compatible. Tus apuntes no salen del dispositivo.</span>
-                </span>
-                <span className="mode-arrow" aria-hidden="true">→</span>
-              </button>
+                <div className="mode-options">
+                  <button type="button" className="mode-option mode-option-local" onClick={() => chooseMode("local")}>
+                    <span className="mode-icon" aria-hidden="true">⌁</span>
+                    <span className="mode-option-copy">
+                      <strong>Hacerlo acá</strong>
+                      <small>IA local · sin cuenta</small>
+                      <span>La opción más privada. Resume en Chrome y tus apuntes no salen del dispositivo.</span>
+                    </span>
+                    <span className="mode-arrow" aria-hidden="true">→</span>
+                  </button>
 
-              <button type="button" className="mode-option" onClick={() => chooseMode("chatgpt")}>
-                <span className="mode-icon" aria-hidden="true">✦</span>
-                <span className="mode-option-copy">
-                  <strong>Preparar para ChatGPT</strong>
-                  <small>Sin cuenta según disponibilidad y región</small>
-                  <span>Genera una instrucción y un archivo para que vos elijas qué compartir.</span>
-                </span>
-                <span className="mode-arrow" aria-hidden="true">→</span>
-              </button>
+                  <button type="button" className="mode-option" onClick={() => chooseMode("chatgpt")}>
+                    <span className="mode-icon" aria-hidden="true">✦</span>
+                    <span className="mode-option-copy">
+                      <strong>Usar ChatGPT</strong>
+                      <small>Puede funcionar sin cuenta</small>
+                      <span>Preparamos todo. Después sólo copiás o adjuntás el archivo en ChatGPT.</span>
+                    </span>
+                    <span className="mode-arrow" aria-hidden="true">→</span>
+                  </button>
 
-              <button type="button" className="mode-option" onClick={() => chooseMode("other")}>
-                <span className="mode-icon" aria-hidden="true">◇</span>
-                <span className="mode-option-copy">
-                  <strong>Preparar para otra IA</strong>
-                  <small>Gemini, Claude, Copilot u otra</small>
-                  <span>Descargá el mismo paquete abierto y usalo donde prefieras.</span>
-                </span>
-                <span className="mode-arrow" aria-hidden="true">→</span>
-              </button>
-            </div>
+                  <button type="button" className="mode-option" onClick={() => chooseMode("other")}>
+                    <span className="mode-icon" aria-hidden="true">◇</span>
+                    <span className="mode-option-copy">
+                      <strong>Elegir otra IA</strong>
+                      <small>Gemini, Copilot, Claude u otra</small>
+                      <span>Primero elegís cuál. Después te mostramos exactamente qué hacer.</span>
+                    </span>
+                    <span className="mode-arrow" aria-hidden="true">→</span>
+                  </button>
+                </div>
 
-            <p className="mode-privacy">
-              Apunte Claro no pide cuenta ni envía nada por su cuenta. Si una plataforma externa
-              te solicita acceso, siempre podés volver y elegir IA local.
-            </p>
-            <div className="mode-links">
-              <a href="https://www.educalive.com/blog/como-hacer-resumen" target="_blank" rel="noreferrer">
-                Método de estudio inspirado en EducAlive ↗
-              </a>
-              <a href="https://help.openai.com/en/articles/9125172-the-chatgpt-home-page" target="_blank" rel="noreferrer">
-                Disponibilidad de ChatGPT sin cuenta ↗
-              </a>
-            </div>
+                <p className="mode-privacy">
+                  Apunte Claro no pide cuenta ni envía nada por su cuenta. Si una plataforma externa
+                  te solicita acceso, siempre podés volver y elegir IA local.
+                </p>
+                <div className="mode-links">
+                  <a href="https://www.educalive.com/blog/como-hacer-resumen" target="_blank" rel="noreferrer">
+                    Método de estudio inspirado en EducAlive ↗
+                  </a>
+                  <a href="https://help.openai.com/en/articles/9125172-the-chatgpt-home-page" target="_blank" rel="noreferrer">
+                    Disponibilidad de ChatGPT sin cuenta ↗
+                  </a>
+                </div>
+              </>
+            ) : (
+              <>
+                <button type="button" className="provider-back" onClick={() => setChooserStep("mode")}>
+                  ← Volver
+                </button>
+                <div className="mode-dialog-heading">
+                  <span className="mode-kicker">Un toque más</span>
+                  <h2 id="mode-title">¿Cuál querés usar?</h2>
+                  <p id="mode-description">
+                    Elegí por nombre. No hace falta configurar claves ni conectar cuentas con Apunte Claro.
+                  </p>
+                </div>
+
+                <div className="mode-options provider-options">
+                  {(Object.entries(EXTERNAL_PROVIDERS) as [
+                    ExternalProvider,
+                    (typeof EXTERNAL_PROVIDERS)[ExternalProvider],
+                  ][]).map(([key, provider]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      className="mode-option provider-option"
+                      onClick={() => chooseExternalProvider(key)}
+                    >
+                      <span className="mode-icon provider-icon" aria-hidden="true">{provider.icon}</span>
+                      <span className="mode-option-copy">
+                        <strong>{provider.name}</strong>
+                        <span>{provider.description}</span>
+                      </span>
+                      <span className="mode-arrow" aria-hidden="true">→</span>
+                    </button>
+                  ))}
+                </div>
+
+                <p className="mode-privacy">
+                  Vas a seguir dentro de Apunte Claro hasta que presiones “Abrir la herramienta”.
+                  Tus materiales nunca se transfieren automáticamente.
+                </p>
+              </>
+            )}
           </section>
         </div>
       )}
@@ -887,11 +992,11 @@ ${combinedText}
         <div className="nav-links">
           <a href="#crear">Crear resumen</a>
           <a href="#metodo">Cómo funciona</a>
-          <button type="button" className="mode-switch" onClick={() => setShowModeChooser(true)}>
+          <button type="button" className="mode-switch" onClick={openModeChooser}>
             {useMode === "chatgpt"
               ? "Modo: ChatGPT"
               : useMode === "other"
-                ? "Modo: otra IA"
+                ? `Modo: ${destinationName}`
                 : "Cambiar modo"}
           </button>
           <span className={`engine-pill engine-${engine}`}>
@@ -1215,12 +1320,26 @@ ${combinedText}
                 </div>
               ) : (
                 <div className="selected-mode-banner">
-                  <span aria-hidden="true">{useMode === "chatgpt" ? "✦" : "◇"}</span>
+                  <span aria-hidden="true">{useMode === "chatgpt" ? "✦" : selectedProvider?.icon ?? "◇"}</span>
                   <div>
-                    <strong>{useMode === "chatgpt" ? "Listo para ChatGPT" : "Listo para otra IA"}</strong>
+                    <strong>Elegiste {destinationName}</strong>
                     <small>El material no se envía automáticamente.</small>
                   </div>
-                  <button type="button" onClick={() => setShowModeChooser(true)}>Cambiar</button>
+                  <button type="button" onClick={openModeChooser}>Cambiar</button>
+                </div>
+              )}
+
+              {useMode && useMode !== "local" && (
+                <div className="external-howto">
+                  <strong>Qué vas a hacer</strong>
+                  <ol>
+                    <li><span>1</span> Agregá tus apuntes y elegí cómo querés estudiar.</li>
+                    <li><span>2</span> Presioná “Preparar para {destinationName}”.</li>
+                    <li>
+                      <span>3</span> Descargá el paquete, abrí {destinationName} y adjuntá el archivo.
+                      Si no permite adjuntarlo, copiá la instrucción.
+                    </li>
+                  </ol>
                 </div>
               )}
 
@@ -1262,7 +1381,7 @@ ${combinedText}
                     : useMode === "chatgpt"
                       ? "Preparar para ChatGPT"
                       : useMode === "other"
-                        ? "Preparar para otra IA"
+                        ? `Preparar para ${destinationName}`
                         : "Generar resumen inteligente"}
                 </button>
                 <button
@@ -1271,7 +1390,11 @@ ${combinedText}
                   disabled={resultMode === "summary" && !result}
                   onClick={copyCurrent}
                 >
-                  {copied ? "Copiado ✓" : "Copiar"}
+                  {copied
+                    ? "Copiado ✓"
+                    : useMode && useMode !== "local"
+                      ? "Copiar instrucción"
+                      : "Copiar"}
                 </button>
                 {resultMode === "summary" && result && (
                   <button type="button" className="secondary-button" onClick={downloadResult}>
@@ -1285,17 +1408,17 @@ ${combinedText}
                     disabled={combinedText.length < 500}
                     onClick={downloadExternalPackage}
                   >
-                    Descargar paquete
+                    Descargar paquete .txt
                   </button>
                 )}
-                {useMode === "chatgpt" && (
+                {(useMode === "chatgpt" || selectedProvider?.url) && (
                   <a
                     className="secondary-button external-button"
-                    href="https://chatgpt.com/"
+                    href={useMode === "chatgpt" ? "https://chatgpt.com/" : selectedProvider?.url ?? "#"}
                     target="_blank"
                     rel="noreferrer"
                   >
-                    Abrir ChatGPT ↗
+                    Abrir {destinationName} ↗
                   </a>
                 )}
               </div>
@@ -1304,7 +1427,7 @@ ${combinedText}
                 {useMode === "chatgpt"
                   ? "Apunte Claro no envía nada. ChatGPT puede funcionar sin cuenta según la región; sin iniciar sesión, el chat no se guarda."
                   : useMode === "other"
-                    ? "Apunte Claro no envía nada. La disponibilidad y los requisitos dependen de la herramienta que elijas."
+                    ? `Apunte Claro no envía nada. ${selectedProvider?.accountNote ?? "La disponibilidad y los requisitos dependen de la herramienta que elijas."}`
                     : engine === "unavailable"
                       ? "En este navegador podés preparar el pedido y obtener un mapa previo. Para la IA local usá Chrome actualizado en una computadora."
                       : "La primera vez, Chrome puede descargar su modelo de IA. Después puede funcionar sin conexión y el material no sale del dispositivo."}

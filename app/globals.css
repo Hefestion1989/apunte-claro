@@ -215,6 +215,47 @@ a {
   text-decoration: underline;
 }
 
+.provider-back {
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: var(--teal);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.provider-back:hover,
+.provider-back:focus-visible {
+  text-decoration: underline;
+  outline: none;
+}
+
+.provider-options {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.provider-option {
+  min-height: 145px;
+  padding-right: 50px;
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 14px;
+}
+
+.provider-option strong {
+  margin-top: 0;
+}
+
+.provider-option .mode-option-copy > span {
+  margin-top: 8px;
+}
+
+.provider-icon {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 800;
+}
+
 .topbar {
   width: min(1180px, calc(100% - 40px));
   height: 76px;
@@ -997,6 +1038,52 @@ fieldset {
   font-weight: 850;
 }
 
+.external-howto {
+  margin-bottom: 14px;
+  padding: 15px;
+  border: 1px solid #d5ddd6;
+  border-radius: 12px;
+  background: #fffefa;
+}
+
+.external-howto > strong {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.external-howto ol {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  list-style: none;
+}
+
+.external-howto li {
+  display: grid;
+  grid-template-columns: 23px 1fr;
+  align-items: start;
+  gap: 8px;
+  color: var(--ink-soft);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.external-howto li span {
+  width: 21px;
+  height: 21px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--mint);
+  font-size: 9px;
+  font-weight: 900;
+}
+
 .empty-result,
 .result-output {
   height: 330px;
@@ -1389,6 +1476,14 @@ footer a {
     min-height: 132px;
     padding-right: 48px;
   }
+
+  .provider-options {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .provider-option {
+    min-height: 140px;
+  }
 }
 
 @media (max-width: 680px) {
@@ -1451,6 +1546,14 @@ footer a {
     display: grid;
     grid-template-columns: 36px 1fr;
     gap: 12px;
+  }
+
+  .provider-options {
+    grid-template-columns: 1fr;
+  }
+
+  .provider-option {
+    min-height: 112px;
   }
 
   .mode-icon {

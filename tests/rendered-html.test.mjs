@@ -36,8 +36,10 @@ test("server-renders the finished Apunte Claro page", async () => {
   assert.match(html, /Sin API/);
   assert.match(html, /Elegí cómo querés resumir/);
   assert.match(html, /IA local · sin cuenta/);
-  assert.match(html, /Preparar para ChatGPT/);
-  assert.match(html, /Preparar para otra IA/);
+  assert.match(html, /Usar ChatGPT/);
+  assert.match(html, /Elegir otra IA/);
+  assert.match(html, /Gemini, Copilot, Claude u otra/);
+  assert.match(html, /No necesitás entender de IA/);
   assert.match(html, /Apunte Claro no pide cuenta ni envía nada por su cuenta/);
   assert.match(html, /https:\/\/www\.educalive\.com\/blog\/como-hacer-resumen/);
   assert.match(html, /https:\/\/help\.openai\.com\/en\/articles\/9125172-the-chatgpt-home-page/);
@@ -59,6 +61,10 @@ test("keeps summarization local and includes supported material readers", async 
   assert.match(page, /mammoth/);
   assert.match(page, /downloadExternalPackage/);
   assert.match(page, /https:\/\/chatgpt\.com\//);
+  assert.match(page, /https:\/\/gemini\.google\.com\//);
+  assert.match(page, /https:\/\/claude\.ai\//);
+  assert.match(page, /https:\/\/copilot\.microsoft\.com\//);
+  assert.match(page, /Descargar paquete \.txt/);
   assert.doesNotMatch(page, /OPENAI_API_KEY|GEMINI_API_KEY|fetch\(["']https:\/\/api\./);
   assert.match(layout, /og\.png/);
   assert.match(packageJson, /"next": "16\.2\.12"/);
