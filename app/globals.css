@@ -1301,6 +1301,15 @@ fieldset {
   text-transform: uppercase;
 }
 
+.external-package-explainer {
+  margin: 0 0 13px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e4e9e3;
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
 .external-howto ol {
   margin: 0;
   padding: 0;
@@ -1533,6 +1542,11 @@ fieldset {
   font-size: 12px;
 }
 
+.copy-package-button {
+  min-height: 52px;
+  font-size: 13px;
+}
+
 .cancel-button {
   border-color: #df8d73;
   color: #8b3d28;
@@ -1659,6 +1673,52 @@ fieldset {
   color: var(--mint);
   font-size: 12px;
   font-weight: 800;
+}
+
+.purpose-note {
+  width: min(1180px, calc(100% - 40px));
+  margin: 38px auto 0;
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(320px, 1.2fr);
+  gap: 28px 56px;
+  padding: 34px;
+  border: 1px solid rgba(201, 255, 130, 0.3);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 8% 15%, rgba(201, 255, 130, 0.12), transparent 38%),
+    rgba(255, 255, 255, 0.05);
+}
+
+.purpose-note .step-kicker {
+  color: var(--mint);
+}
+
+.purpose-note .step-kicker::before {
+  background: var(--mint);
+}
+
+.purpose-note h3 {
+  margin: 18px 0 0;
+  font-family: Georgia, serif;
+  font-size: clamp(25px, 3vw, 38px);
+  font-weight: 500;
+  line-height: 1.08;
+}
+
+.purpose-note p {
+  margin: 0 0 18px;
+  color: #d7e1de;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.purpose-note > div:last-child > strong {
+  display: block;
+  padding-top: 18px;
+  border-top: 1px solid rgba(201, 255, 130, 0.22);
+  color: var(--mint);
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .quality-panel {
@@ -1870,6 +1930,10 @@ footer a {
 
   .quality-grid {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .purpose-note {
+    grid-template-columns: 1fr;
   }
 
   .method-card {
@@ -2116,7 +2180,8 @@ footer a {
   }
 
   .quality-heading,
-  .quality-grid {
+  .quality-grid,
+  .purpose-note {
     grid-template-columns: 1fr;
   }
 

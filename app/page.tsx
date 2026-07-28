@@ -1762,17 +1762,22 @@ Apunte Claro no envió ningún archivo automáticamente.
 
                   <div className="external-howto">
                     <strong>Qué tenés que hacer</strong>
+                    <p className="external-package-explainer">
+                      El paquete completo une la instrucción de estudio con el texto extraído de
+                      los materiales que agregaste. Está preparado para pegarlo en {destinationName}
+                      o descargarlo y adjuntarlo allí.
+                    </p>
                     <ol>
                       <li><span>1</span> Revisá las alertas y completá lo que conozcas.</li>
                       <li>
                         <span>2</span>
                         {externalPackagePlan.shouldSplit
-                          ? ` Descargá el ZIP y procesá sus ${externalPackagePlan.partCount} partes en orden.`
-                          : " Descargá o copiá el paquete completo: incluye la instrucción y tu material."}
+                          ? ` Copiá el paquete completo o descargá el ZIP con sus ${externalPackagePlan.partCount} partes numeradas.`
+                          : " Copiá el paquete completo: incluye la instrucción y el texto de tu material."}
                       </li>
                       <li>
-                        <span>3</span> Después abrí {destinationName} y adjuntá el archivo o pegá
-                        el paquete copiado. Apunte Claro nunca lo envía por vos.
+                        <span>3</span> Abrí {destinationName} y pegalo en el chat. Si lo descargaste,
+                        adjuntá el archivo. Apunte Claro nunca lo envía por vos.
                       </li>
                     </ol>
                   </div>
@@ -1852,33 +1857,43 @@ Apunte Claro no envió ningún archivo automáticamente.
               {error && <div className="error-message" role="alert">{error}</div>}
 
               <div className="result-actions">
-                <button
-                  type="button"
-                  className="primary-button generate-button"
-                  disabled={
-                    isGenerating ||
-                    isReading ||
-                    isPackaging ||
-                    (useMode !== "local" && !externalReady)
-                  }
-                  onClick={
-                    useMode === "local"
-                      ? generateIntelligentSummary
-                      : externalPackagePlan.shouldSplit
-                        ? downloadExternalZip
-                        : downloadExternalPackage
-                  }
-                >
-                  {isGenerating
-                    ? "Trabajando por secciones…"
-                    : isPackaging
-                      ? "Armando el paquete…"
-                      : useMode && useMode !== "local"
-                        ? externalPackagePlan.shouldSplit
+                {useMode && useMode !== "local" ? (
+                  <>
+                    <button
+                      type="button"
+                      className="primary-button generate-button copy-package-button"
+                      disabled={!externalReady}
+                      onClick={copyExternalPackage}
+                    >
+                      {copiedPackage ? "Paquete completo copiado ✓" : "Copiar paquete completo"}
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      disabled={isReading || isPackaging || !externalReady}
+                      onClick={
+                        externalPackagePlan.shouldSplit
+                          ? downloadExternalZip
+                          : downloadExternalPackage
+                      }
+                    >
+                      {isPackaging
+                        ? "Armando el paquete…"
+                        : externalPackagePlan.shouldSplit
                           ? `Descargar ${externalPackagePlan.partCount} partes (.zip)`
-                          : "Descargar paquete completo"
-                        : "Probar generación local"}
-                </button>
+                          : "Descargar paquete (.txt)"}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="primary-button generate-button"
+                    disabled={isGenerating || isReading}
+                    onClick={generateIntelligentSummary}
+                  >
+                    {isGenerating ? "Trabajando por secciones…" : "Probar generación local"}
+                  </button>
+                )}
                 {isGenerating && useMode === "local" && (
                   <button
                     type="button"
@@ -1897,19 +1912,9 @@ Apunte Claro no envió ningún archivo automáticamente.
                   {copied
                     ? "Copiado ✓"
                     : useMode && useMode !== "local"
-                      ? "Copiar instrucción"
+                      ? "Copiar sólo la instrucción"
                       : "Copiar"}
                 </button>
-                {useMode && useMode !== "local" && (
-                  <button
-                    type="button"
-                    className="secondary-button copy-package-button"
-                    disabled={!externalReady}
-                    onClick={copyExternalPackage}
-                  >
-                    {copiedPackage ? "Paquete copiado ✓" : "Copiar paquete completo"}
-                  </button>
-                )}
                 {resultMode === "summary" && result && (
                   <button type="button" className="secondary-button" onClick={downloadResult}>
                     Descargar .md
@@ -1988,6 +1993,22 @@ Apunte Claro no envió ningún archivo automáticamente.
             Ver artículo de EducAlive ↗
           </a>
         </div>
+
+        <aside className="purpose-note" aria-labelledby="purpose-title">
+          <div>
+            <span className="step-kicker">Por qué existe Apunte Claro</span>
+            <h3 id="purpose-title">Estudiar mejor debería estar al alcance de cualquiera.</h3>
+          </div>
+          <div>
+            <p>
+              Preparar una buena síntesis requiere lectura, criterio y trabajo. Apunte Claro no
+              busca desvalorizar ese esfuerzo ni reemplazar el estudio: ayuda a que cualquier
+              estudiante pueda aprender a construir un resumen cuidadoso y metódico, usando su
+              propio material y revisando críticamente lo que produce la IA.
+            </p>
+            <strong>No te entrega una respuesta para repetir: te ayuda a organizar, comprender y revisar.</strong>
+          </div>
+        </aside>
 
         <div className="quality-panel">
           <div className="quality-heading">

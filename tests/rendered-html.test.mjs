@@ -94,7 +94,16 @@ test("keeps summarization local and includes supported material readers", async 
   assert.match(page, /https:\/\/copilot\.microsoft\.com\//);
   assert.match(page, /Descargar todo junto \(\.txt\)/);
   assert.match(page, /Copiar paquete completo/);
+  assert.match(page, /Copiar sólo la instrucción/);
   assert.match(page, /el paquete completo también incluye tu material/);
+  assert.match(page, /El paquete completo une la instrucción de estudio con el texto extraído/);
+  assert.match(page, /Estudiar mejor debería estar al alcance de cualquiera/);
+  assert.match(page, /resumen cuidadoso y metódico/);
+  assert.match(page, /No te entrega una respuesta para repetir/);
+  assert.ok(
+    page.indexOf("Copiar paquete completo") < page.indexOf("Copiar sólo la instrucción"),
+    "la acción completa debe aparecer antes que la opción avanzada",
+  );
   assert.match(page, /Paquete académico/);
   assert.match(page, /No encontramos evidencia sobre qué pide el docente/);
   assert.doesNotMatch(page, /prepareExternalPackage/);
