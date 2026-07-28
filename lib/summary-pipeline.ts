@@ -163,6 +163,194 @@ export function splitByStructure(text: string, maxChars = 16_000, overlap = 240)
   return chunks;
 }
 
+const RTF_DESTINATIONS = new Set([
+  "colortbl",
+  "datastore",
+  "field",
+  "filetbl",
+  "fldinst",
+  "fonttbl",
+  "footer",
+  "footerf",
+  "footerl",
+  "footerr",
+  "generator",
+  "header",
+  "headerf",
+  "headerl",
+  "headerr",
+  "info",
+  "listoverridetable",
+  "listtable",
+  "object",
+  "pict",
+  "pntext",
+  "stylesheet",
+  "themedata",
+  "xmlnstbl",
+]);
+
+const WINDOWS_1252_SPECIALS: Record<number, string> = {
+  0x80: "€",
+  0x82: "‚",
+  0x83: "ƒ",
+  0x84: "„",
+  0x85: "…",
+  0x86: "†",
+  0x87: "‡",
+  0x88: "ˆ",
+  0x89: "‰",
+  0x8a: "Š",
+  0x8b: "‹",
+  0x8c: "Œ",
+  0x8e: "Ž",
+  0x91: "‘",
+  0x92: "’",
+  0x93: "“",
+  0x94: "”",
+  0x95: "•",
+  0x96: "–",
+  0x97: "—",
+  0x98: "˜",
+  0x99: "™",
+  0x9a: "š",
+  0x9b: "›",
+  0x9c: "œ",
+  0x9e: "ž",
+  0x9f: "Ÿ",
+};
+
+function decodeWindows1252Byte(byte: number) {
+  return WINDOWS_1252_SPECIALS[byte] ?? String.fromCharCode(byte);
+}
+
+export function extractRtfText(rtf: string) {
+  if (!/^\s*\{\\rtf/i.test(rtf)) return rtf;
+
+  type RtfState = { ignorable: boolean; unicodeFallbackLength: number };
+  const states: RtfState[] = [{ ignorable: false, unicodeFallbackLength: 1 }];
+  let state = states[0];
+  let output = "";
+  let index = 0;
+  let fallbackCharactersToSkip = 0;
+
+  const emitVisible = (value: string) => {
+    if (state.ignorable) return;
+    if (fallbackCharactersToSkip > 0) {
+      fallbackCharactersToSkip -= 1;
+      return;
+    }
+    output += value;
+  };
+
+  const emitControlText = (value: string) => {
+    if (!state.ignorable) output += value;
+  };
+
+  while (index < rtf.length) {
+    const character = rtf[index];
+
+    if (character === "{") {
+      state = { ...state };
+      states.push(state);
+      index += 1;
+      continue;
+    }
+
+    if (character === "}") {
+      if (states.length > 1) states.pop();
+      state = states.at(-1)!;
+      index += 1;
+      continue;
+    }
+
+    if (character !== "\\") {
+      emitVisible(character);
+      index += 1;
+      continue;
+    }
+
+    index += 1;
+    if (index >= rtf.length) break;
+    const symbol = rtf[index];
+
+    if (symbol === "\\" || symbol === "{" || symbol === "}") {
+      emitVisible(symbol);
+      index += 1;
+      continue;
+    }
+
+    if (symbol === "'" && /^[0-9a-f]{2}$/i.test(rtf.slice(index + 1, index + 3))) {
+      emitVisible(decodeWindows1252Byte(Number.parseInt(rtf.slice(index + 1, index + 3), 16)));
+      index += 3;
+      continue;
+    }
+
+    if (symbol === "*") {
+      state.ignorable = true;
+      index += 1;
+      continue;
+    }
+
+    if (!/[a-z]/i.test(symbol)) {
+      const symbolMap: Record<string, string> = {
+        "~": " ",
+        "_": "‑",
+        "-": "",
+      };
+      if (symbol in symbolMap) emitVisible(symbolMap[symbol]);
+      index += 1;
+      continue;
+    }
+
+    const wordStart = index;
+    while (/[a-z]/i.test(rtf[index] ?? "")) index += 1;
+    const controlWord = rtf.slice(wordStart, index).toLowerCase();
+    const numberStart = index;
+    if (rtf[index] === "-") index += 1;
+    while (/\d/.test(rtf[index] ?? "")) index += 1;
+    const rawParameter = rtf.slice(numberStart, index);
+    const parameter = rawParameter ? Number.parseInt(rawParameter, 10) : null;
+    if (rtf[index] === " ") index += 1;
+
+    if (RTF_DESTINATIONS.has(controlWord)) {
+      state.ignorable = true;
+      continue;
+    }
+    if (controlWord === "uc" && parameter !== null) {
+      state.unicodeFallbackLength = Math.max(0, parameter);
+      continue;
+    }
+    if (state.ignorable) continue;
+
+    if (controlWord === "u" && parameter !== null) {
+      const codePoint = parameter < 0 ? parameter + 65_536 : parameter;
+      emitControlText(String.fromCodePoint(codePoint));
+      fallbackCharactersToSkip = state.unicodeFallbackLength;
+      continue;
+    }
+
+    const controlText: Record<string, string> = {
+      bullet: "•",
+      emdash: "—",
+      endash: "–",
+      line: "\n",
+      lquote: "‘",
+      par: "\n",
+      rquote: "’",
+      tab: "\t",
+    };
+    if (controlWord in controlText) emitControlText(controlText[controlWord]);
+  }
+
+  return output
+    .replace(/\r/g, "")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export async function fitChunksToQuota(
   chunks: string[],
   measure: (chunk: string) => Promise<number>,

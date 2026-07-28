@@ -10,6 +10,7 @@ import {
   buildLocalSummaryPlan,
   buildPartialSummary,
   buildSectionLabels,
+  extractRtfText,
   fitChunksToQuota,
   isIncompleteSummary,
   runSectionSummaries,
@@ -83,6 +84,24 @@ test("plans numbered external parts and a final integration instruction", () => 
   assert.match(firstPart, /No presentes todavía una conclusión general/);
   assert.match(integration, /Integración final para Gemini/);
   assert.match(integration, /No agregues conocimiento externo/);
+});
+
+test("extracts readable Spanish text from formatted RTF", () => {
+  const rtf = String.raw`{\rtf1\ansi\ansicpg1252\deff0
+{\fonttbl{\f0 Arial;}{\f1 Times New Roman;}}
+{\colortbl;\red0\green0\blue0;}
+\viewkind4\uc1\pard
+\b Dispositivos psicoterap\u233?uticos\b0\par
+Freud propuso una relaci\u243?n entre cl\u237?nica y teor\u237?a.\par
+Autor:\tab Michel Foucault.\line Cr\'edtica y comparaci\'f3n.\par
+}`;
+  const text = extractRtfText(rtf);
+
+  assert.match(text, /Dispositivos psicoterapéuticos/);
+  assert.match(text, /relación entre clínica y teoría/);
+  assert.match(text, /Michel Foucault/);
+  assert.match(text, /Crítica y comparación/);
+  assert.doesNotMatch(text, /fonttbl|Arial|colortbl|\\par|\\u233/);
 });
 
 test("publishes a readable partial draft after every completed section", async () => {

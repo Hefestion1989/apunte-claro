@@ -15,6 +15,10 @@ import {
   splitByStructure,
   SummaryCancelled,
 } from "@/lib/summary-pipeline";
+import {
+  cleanMaterialText as cleanText,
+  readMaterialFile,
+} from "@/lib/material-readers";
 
 type Material = {
   id: string;
@@ -48,6 +52,8 @@ type StudyConfig = {
 
 const MAX_FILE_BYTES = 18 * 1024 * 1024;
 const MAX_LOCAL_CHARS = 1_500_000;
+const MIN_EXTERNAL_CHARS = 80;
+const MIN_LOCAL_CHARS = 500;
 
 const EXTERNAL_PROVIDERS: Record<
   ExternalProvider,
@@ -208,15 +214,6 @@ const initialConfig: StudyConfig = {
   notes: "",
 };
 
-function cleanText(text: string) {
-  return text
-    .replace(/\u0000/g, "")
-    .replace(/Encuentre más documentos universitarios en https?:\/\/apunty\.com/gi, "")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{4,}/g, "\n\n\n")
-    .trim();
-}
-
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
@@ -366,44 +363,6 @@ function fallbackSection(text: string, config: StudyConfig) {
     .trim()}`;
 }
 
-async function readPdf(file: File) {
-  const pdfjs = await import("pdfjs-dist");
-  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-    "pdfjs-dist/build/pdf.worker.min.mjs",
-    import.meta.url,
-  ).toString();
-  const data = new Uint8Array(await file.arrayBuffer());
-  const pdf = await pdfjs.getDocument({ data }).promise;
-  const pages: string[] = [];
-  for (let index = 1; index <= pdf.numPages; index += 1) {
-    const page = await pdf.getPage(index);
-    const content = await page.getTextContent();
-    const pageText = content.items
-      .map((item) => ("str" in item ? item.str : ""))
-      .join(" ");
-    pages.push(`[Página ${index}]\n${pageText}`);
-  }
-  return cleanText(pages.join("\n\n"));
-}
-
-async function readDocx(file: File) {
-  const mammoth = await import("mammoth");
-  const result = await mammoth.extractRawText({
-    arrayBuffer: await file.arrayBuffer(),
-  });
-  return cleanText(result.value);
-}
-
-async function readFileText(file: File) {
-  const extension = file.name.split(".").pop()?.toLowerCase();
-  if (extension === "pdf") return readPdf(file);
-  if (extension === "docx") return readDocx(file);
-  if (["txt", "md", "csv", "rtf"].includes(extension ?? "")) {
-    return cleanText(await file.text());
-  }
-  throw new Error("Formato no compatible");
-}
-
 async function summarizeSafely(
   summarizer: Summarizer,
   input: string,
@@ -489,6 +448,7 @@ export default function Home() {
   const [chooserStep, setChooserStep] = useState<"mode" | "provider" | "about">("mode");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [copiedPackage, setCopiedPackage] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const generationControllerRef = useRef<AbortController | null>(null);
   const generationStartedAtRef = useRef<number | null>(null);
@@ -545,6 +505,7 @@ export default function Home() {
   }, [materials, pastedText]);
 
   const totalWords = wordCount(combinedText);
+  const externalReady = combinedText.length >= MIN_EXTERNAL_CHARS;
   const localSummaryPlan = useMemo(
     () => buildLocalSummaryPlan(totalWords, config.length),
     [config.length, totalWords],
@@ -625,14 +586,17 @@ export default function Home() {
         continue;
       }
       try {
-        const text = await readFileText(file);
+        const text = await readMaterialFile(file);
         next.push({
           id,
           name: file.name,
           size: file.size,
           text,
-          status: text.length > 80 ? "ready" : "error",
-          note: text.length > 80 ? undefined : "No se pudo extraer suficiente texto",
+          status: text.length >= MIN_EXTERNAL_CHARS ? "ready" : "error",
+          note:
+            text.length >= MIN_EXTERNAL_CHARS
+              ? undefined
+              : "El archivo tiene muy poco texto utilizable",
         });
       } catch {
         next.push({
@@ -671,6 +635,7 @@ export default function Home() {
     setError("");
     setProgressText("");
     setPackageMessage("");
+    setCopiedPackage(false);
     window.setTimeout(() => document.querySelector("#crear")?.scrollIntoView({ behavior: "smooth" }), 120);
   }
 
@@ -683,6 +648,7 @@ export default function Home() {
     setError("");
     setProgressText("");
     setPackageMessage("");
+    setCopiedPackage(false);
     window.setTimeout(() => document.querySelector("#crear")?.scrollIntoView({ behavior: "smooth" }), 120);
   }
 
@@ -722,7 +688,7 @@ export default function Home() {
     setAverageSectionSeconds(0);
     setCompletedSections(0);
     setTotalSections(0);
-    if (combinedText.length < 500) {
+    if (combinedText.length < MIN_LOCAL_CHARS) {
       setError("Agregá al menos unas páginas de material o pegá un texto más extenso.");
       return;
     }
@@ -1048,6 +1014,21 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
     window.setTimeout(() => setCopied(false), 1800);
   }
 
+  async function copyExternalPackage() {
+    if (!externalReady) {
+      setError("Pegá un fragmento o agregá un archivo con texto antes de copiar el paquete.");
+      return;
+    }
+    const packageText = buildExternalPackage(destinationName, promptText, combinedText);
+    await navigator.clipboard.writeText(packageText);
+    setError("");
+    setCopiedPackage(true);
+    setPackageMessage(
+      `Paquete completo copiado: instrucción + ${externalPackagePlan.wordCount.toLocaleString("es-UY")} palabras de material.`,
+    );
+    window.setTimeout(() => setCopiedPackage(false), 1800);
+  }
+
   function downloadResult() {
     if (!result) return;
     const blob = new Blob([result], { type: "text/markdown;charset=utf-8" });
@@ -1070,8 +1051,8 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
   }
 
   function downloadExternalPackage() {
-    if (combinedText.length < 500) {
-      setError("Agregá material antes de descargar el paquete.");
+    if (!externalReady) {
+      setError("Pegá un fragmento o agregá un archivo con texto antes de descargar el paquete.");
       return;
     }
     const destination = destinationName;
@@ -1088,8 +1069,8 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
   }
 
   async function downloadExternalZip() {
-    if (combinedText.length < 500) {
-      setError("Agregá material antes de descargar el paquete.");
+    if (!externalReady) {
+      setError("Pegá un fragmento o agregá un archivo con texto antes de descargar el paquete.");
       return;
     }
     setError("");
@@ -1522,9 +1503,11 @@ Apunte Claro no envió ningún archivo automáticamente.
                     ? "agregá material para comenzar"
                     : useMode === "local"
                       ? `estimación inicial: ${estimatedSections} secciones`
-                      : externalPackagePlan.shouldSplit
-                        ? `paquete recomendado: ${externalPackagePlan.partCount} partes`
-                        : "entra en un paquete completo"}
+                      : !externalReady
+                        ? "fragmento muy breve: agregá un poco más"
+                        : externalPackagePlan.shouldSplit
+                          ? `paquete recomendado: ${externalPackagePlan.partCount} partes`
+                          : "listo para un paquete completo"}
                 </span>
               </div>
             </section>
@@ -1720,12 +1703,12 @@ Apunte Claro no envió ningún archivo automáticamente.
                       <div>
                         <span>Paquete académico</span>
                         <strong>
-                          {combinedText.length < 500
-                            ? "Agregá material para prepararlo"
-                            : `Listo para ${destinationName}`}
+                          {!externalReady
+                            ? "Pegá un fragmento o agregá un archivo"
+                            : `Listo para copiar o descargar y usar en ${destinationName}`}
                         </strong>
                       </div>
-                      {combinedText.length >= 500 && (
+                      {externalReady && (
                         <span className="package-kind">
                           {externalPackagePlan.shouldSplit
                             ? `${externalPackagePlan.partCount} partes`
@@ -1747,7 +1730,7 @@ Apunte Claro no envió ningún archivo automáticamente.
                         palabras
                       </span>
                     </div>
-                    {combinedText.length >= 500 && (
+                    {externalReady && (
                       <div className="package-checks">
                         <p className={externalPackagePlan.topicMissing ? "is-warning" : "is-ready"}>
                           <span>{externalPackagePlan.topicMissing ? "!" : "✓"}</span>
@@ -1778,18 +1761,18 @@ Apunte Claro no envió ningún archivo automáticamente.
                   </div>
 
                   <div className="external-howto">
-                    <strong>Cómo usar el paquete</strong>
+                    <strong>Qué tenés que hacer</strong>
                     <ol>
                       <li><span>1</span> Revisá las alertas y completá lo que conozcas.</li>
                       <li>
                         <span>2</span>
                         {externalPackagePlan.shouldSplit
                           ? ` Descargá el ZIP y procesá sus ${externalPackagePlan.partCount} partes en orden.`
-                          : " Descargá el archivo que contiene la instrucción y todo el material."}
+                          : " Descargá o copiá el paquete completo: incluye la instrucción y tu material."}
                       </li>
                       <li>
-                        <span>3</span> Abrí {destinationName}, adjuntá el paquete y enviá el pedido.
-                        Apunte Claro nunca lo hace por vos.
+                        <span>3</span> Después abrí {destinationName} y adjuntá el archivo o pegá
+                        el paquete copiado. Apunte Claro nunca lo envía por vos.
                       </li>
                     </ol>
                   </div>
@@ -1816,7 +1799,7 @@ Apunte Claro no envió ningún archivo automáticamente.
                 )
               ) : (
                 <div className="prompt-preview">
-                  <span>Instrucción académica incluida en el paquete</span>
+                  <span>Vista previa de la instrucción · el paquete completo también incluye tu material</span>
                   <article className="result-output prompt-output">
                     <pre>{promptText}</pre>
                   </article>
@@ -1876,7 +1859,7 @@ Apunte Claro no envió ningún archivo automáticamente.
                     isGenerating ||
                     isReading ||
                     isPackaging ||
-                    (useMode !== "local" && combinedText.length < 500)
+                    (useMode !== "local" && !externalReady)
                   }
                   onClick={
                     useMode === "local"
@@ -1893,7 +1876,7 @@ Apunte Claro no envió ningún archivo automáticamente.
                       : useMode && useMode !== "local"
                         ? externalPackagePlan.shouldSplit
                           ? `Descargar ${externalPackagePlan.partCount} partes (.zip)`
-                          : `Descargar paquete para ${destinationName}`
+                          : "Descargar paquete completo"
                         : "Probar generación local"}
                 </button>
                 {isGenerating && useMode === "local" && (
@@ -1917,6 +1900,16 @@ Apunte Claro no envió ningún archivo automáticamente.
                       ? "Copiar instrucción"
                       : "Copiar"}
                 </button>
+                {useMode && useMode !== "local" && (
+                  <button
+                    type="button"
+                    className="secondary-button copy-package-button"
+                    disabled={!externalReady}
+                    onClick={copyExternalPackage}
+                  >
+                    {copiedPackage ? "Paquete copiado ✓" : "Copiar paquete completo"}
+                  </button>
+                )}
                 {resultMode === "summary" && result && (
                   <button type="button" className="secondary-button" onClick={downloadResult}>
                     Descargar .md
@@ -1926,7 +1919,7 @@ Apunte Claro no envió ningún archivo automáticamente.
                   <button
                     type="button"
                     className="secondary-button"
-                    disabled={combinedText.length < 500}
+                    disabled={!externalReady}
                     onClick={downloadExternalPackage}
                   >
                     Descargar todo junto (.txt)

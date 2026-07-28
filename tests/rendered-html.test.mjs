@@ -47,10 +47,11 @@ test("server-renders the finished Apunte Claro page", async () => {
 });
 
 test("keeps summarization local and includes supported material readers", async () => {
-  const [page, layout, packageJson] = await Promise.all([
+  const [page, layout, packageJson, materialReaders] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
+    readFile(new URL("../lib/material-readers.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /Summarizer\.availability/);
@@ -58,8 +59,12 @@ test("keeps summarization local and includes supported material readers", async 
   assert.doesNotMatch(page, /Dándole estructura académica/);
   assert.match(page, /splitByStructure/);
   assert.match(page, /measureInputUsage/);
-  assert.match(page, /pdfjs-dist/);
-  assert.match(page, /mammoth/);
+  assert.match(materialReaders, /pdfjs-dist/);
+  assert.match(materialReaders, /mammoth/);
+  assert.match(materialReaders, /extractRtfText/);
+  assert.match(materialReaders, /readMaterialFile/);
+  assert.match(page, /MIN_EXTERNAL_CHARS = 80/);
+  assert.match(page, /MIN_LOCAL_CHARS = 500/);
   assert.match(page, /downloadExternalPackage/);
   assert.match(page, /downloadExternalZip/);
   assert.match(page, /analyzeExternalMaterial/);
@@ -88,9 +93,12 @@ test("keeps summarization local and includes supported material readers", async 
   assert.match(page, /https:\/\/claude\.ai\//);
   assert.match(page, /https:\/\/copilot\.microsoft\.com\//);
   assert.match(page, /Descargar todo junto \(\.txt\)/);
+  assert.match(page, /Copiar paquete completo/);
+  assert.match(page, /el paquete completo también incluye tu material/);
   assert.match(page, /Paquete académico/);
   assert.match(page, /No encontramos evidencia sobre qué pide el docente/);
   assert.doesNotMatch(page, /prepareExternalPackage/);
+  assert.doesNotMatch(page, /combinedText\.length < 500/);
   assert.doesNotMatch(page, /\.slice\(0,\s*MAX_TOTAL_CHARS\)/);
   assert.doesNotMatch(page, /primeros 280\.000 caracteres/);
   assert.doesNotMatch(page, /OPENAI_API_KEY|GEMINI_API_KEY|fetch\(["']https:\/\/api\./);
