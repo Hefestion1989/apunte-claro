@@ -67,10 +67,13 @@ test("keeps summarization local and includes supported material readers", async 
   assert.match(page, /Gemini Nano/);
   assert.match(page, /¿Por qué puede ser gratis\?/);
   assert.match(page, /chrome:\/\/on-device-internals/);
-  assert.match(page, /splitByStructure\(combinedText, 16_000, 0\)/);
+  assert.match(page, /splitByStructure\(combinedText, generationPlan\.chunkChars, 0\)/);
+  assert.match(page, /localSummaryPlan\.chunkChars/);
   assert.match(page, /No arrastres temas de otra sección/);
   assert.match(page, /No conviertas bibliografías, índices, carátulas/);
-  assert.match(page, /const modelPreference/);
+  assert.match(page, /buildLocalSummaryPlan/);
+  assert.match(page, /Modo compacto activo/);
+  assert.match(page, /sectionDurations\.slice\(-3\)/);
   assert.doesNotMatch(page, /await fitChunksToQuota/);
   assert.match(page, /isIncompleteSummary/);
   assert.match(page, /buildSectionLabels/);

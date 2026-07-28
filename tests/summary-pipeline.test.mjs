@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   buildExternalPackage,
+  buildIntegrationSource,
+  buildLocalSummaryPlan,
   buildPartialSummary,
   buildSectionLabels,
   fitChunksToQuota,
@@ -93,6 +95,45 @@ test("uses traceable labels in partial summaries", () => {
 
   assert.match(draft, /### Dispositivos\.pdf · páginas 7–9/);
   assert.doesNotMatch(draft, /### Sección 1/);
+});
+
+test("uses a compact one-pass plan for enormous local documents", () => {
+  const plan = buildLocalSummaryPlan(45_000, "medium");
+
+  assert.equal(plan.optimized, true);
+  assert.equal(plan.chunkChars, 24_000);
+  assert.equal(plan.sectionType, "key-points");
+  assert.equal(plan.sectionFormat, "markdown");
+  assert.equal(plan.sectionLength, "medium");
+  assert.equal(plan.preference, "auto");
+  assert.equal(plan.retryIncomplete, false);
+  assert.equal(plan.includeIntegratedKeyPoints, false);
+});
+
+test("keeps the detailed plan for ordinary documents", () => {
+  const plan = buildLocalSummaryPlan(8_000, "long");
+
+  assert.equal(plan.optimized, false);
+  assert.equal(plan.chunkChars, 16_000);
+  assert.equal(plan.sectionType, "tldr");
+  assert.equal(plan.sectionLength, "long");
+  assert.equal(plan.preference, "capability");
+  assert.equal(plan.retryIncomplete, true);
+  assert.equal(plan.includeIntegratedKeyPoints, true);
+});
+
+test("builds a small integration source without deleting the detailed sections", () => {
+  const partials = [
+    "Primera idea. Segunda relación. Tercer detalle.",
+    "- Autor A formula una tesis. Autor B la critica. Ejemplo secundario.",
+  ];
+
+  const integration = buildIntegrationSource(partials, 2);
+  assert.equal(
+    integration,
+    "Primera idea. Segunda relación.\n\nAutor A formula una tesis. Autor B la critica.",
+  );
+  assert.equal(partials[0], "Primera idea. Segunda relación. Tercer detalle.");
 });
 
 test("cancels before the next section and preserves completed summaries", async () => {

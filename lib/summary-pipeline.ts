@@ -12,6 +12,49 @@ type RunSectionOptions = {
   signal?: AbortSignal;
 };
 
+export type SummaryLength = "short" | "medium" | "long";
+
+export function buildLocalSummaryPlan(totalWords: number, requestedLength: SummaryLength) {
+  const optimized = totalWords >= 30_000;
+  const preference =
+    requestedLength === "short"
+      ? "speed"
+      : optimized || requestedLength === "medium"
+        ? "auto"
+        : "capability";
+
+  return {
+    optimized,
+    chunkChars: optimized ? 24_000 : 16_000,
+    preference: preference as "speed" | "auto" | "capability",
+    sectionType: optimized ? ("key-points" as const) : ("tldr" as const),
+    sectionFormat: optimized ? ("markdown" as const) : ("plain-text" as const),
+    sectionLength: optimized
+      ? requestedLength === "short"
+        ? ("short" as const)
+        : ("medium" as const)
+      : ("long" as const),
+    finalLength: optimized ? ("medium" as const) : requestedLength,
+    retryIncomplete: !optimized,
+    includeIntegratedKeyPoints: !optimized,
+  };
+}
+
+export function buildIntegrationSource(partials: string[], sentencesPerSection = 2) {
+  const safeLimit = Math.max(1, Math.floor(sentencesPerSection));
+  return partials
+    .map((partial) => {
+      const sentences = partial
+        .replace(/^[-*]\s+/gm, "")
+        .split(/(?<=[.!?])\s+/)
+        .map((sentence) => sentence.trim())
+        .filter(Boolean);
+      return sentences.slice(0, safeLimit).join(" ");
+    })
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 export class SummaryCancelled extends Error {
   partials: string[];
   total: number;

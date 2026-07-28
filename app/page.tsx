@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   buildExternalPackage,
+  buildIntegrationSource,
+  buildLocalSummaryPlan,
   buildPartialSummary,
   buildSectionLabels,
   isIncompleteSummary,
@@ -403,12 +405,13 @@ async function summarizeSafely(
   context: string,
   signal?: AbortSignal,
   depth = 0,
+  retryIncomplete = true,
 ) {
   if (signal?.aborted) throw new DOMException("Cancelado", "AbortError");
   const usage = await summarizer.measureInputUsage(input, { context });
   if (usage <= summarizer.inputQuota) {
     const summary = await summarizer.summarize(input, { context, signal });
-    if (isIncompleteSummary(summary) && input.length > 2_400 && depth < 2) {
+    if (retryIncomplete && isIncompleteSummary(summary) && input.length > 2_400 && depth < 2) {
       const retryParts = splitByStructure(
         input,
         Math.max(2_400, Math.floor(input.length / 2)),
@@ -424,6 +427,7 @@ async function summarizeSafely(
               `${context} Este subfragmento se generó porque la primera síntesis quedó cortada. Cerrá todas las ideas con oraciones completas.`,
               signal,
               depth + 1,
+              retryIncomplete,
             ),
           );
         }
@@ -438,7 +442,16 @@ async function summarizeSafely(
   if (halves.length < 2) return summarizer.summarize(input, { context, signal });
   const outputs: string[] = [];
   for (const half of halves) {
-    outputs.push(await summarizeSafely(summarizer, half, context, signal, depth + 1));
+    outputs.push(
+      await summarizeSafely(
+        summarizer,
+        half,
+        context,
+        signal,
+        depth + 1,
+        retryIncomplete,
+      ),
+    );
   }
   return outputs.join("\n");
 }
@@ -458,6 +471,7 @@ export default function Home() {
   const [progressText, setProgressText] = useState("");
   const [progressPercent, setProgressPercent] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [averageSectionSeconds, setAverageSectionSeconds] = useState(0);
   const [completedSections, setCompletedSections] = useState(0);
   const [totalSections, setTotalSections] = useState(0);
   const [result, setResult] = useState("");
@@ -524,9 +538,16 @@ export default function Home() {
   }, [materials, pastedText]);
 
   const totalWords = wordCount(combinedText);
+  const localSummaryPlan = useMemo(
+    () => buildLocalSummaryPlan(totalWords, config.length),
+    [config.length, totalWords],
+  );
   const estimatedSections = useMemo(
-    () => (combinedText.length ? splitByStructure(combinedText, 16_000, 0).length : 0),
-    [combinedText],
+    () =>
+      combinedText.length
+        ? splitByStructure(combinedText, localSummaryPlan.chunkChars, 0).length
+        : 0,
+    [combinedText, localSummaryPlan.chunkChars],
   );
   const promptText = useMemo(
     () =>
@@ -545,9 +566,9 @@ export default function Home() {
     if (!config.topic.trim()) items.push("Escribí el tema: ayuda a no mezclar conceptos cercanos.");
     if (materials.length > 1)
       items.push("Indicá autores o unidades si querés comparar sin mezclar atribuciones.");
-    if (totalWords > 35_000)
+    if (localSummaryPlan.optimized)
       items.push(
-        "Con más de 35.000 palabras, la IA local puede tardar decenas de minutos. Por capítulos es más práctico y preciso.",
+        "Documento enorme: activaremos un modo local compacto para reducir el tiempo. Por capítulos sigue siendo más preciso.",
       );
     if (config.focus.length < 2)
       items.push("Elegí al menos dos focos, por ejemplo Conceptos + Relaciones.");
@@ -556,7 +577,7 @@ export default function Home() {
     if (!items.length)
       items.push("La configuración está completa. Después revisá el resultado contra el material.");
     return items.slice(0, 3);
-  }, [config, materials.length, totalWords]);
+  }, [config, localSummaryPlan.optimized, materials.length]);
 
   async function handleFiles(files: FileList | null) {
     if (!files?.length) return;
@@ -675,6 +696,7 @@ export default function Home() {
     setProgressText("");
     setProgressPercent(0);
     setElapsedSeconds(0);
+    setAverageSectionSeconds(0);
     setCompletedSections(0);
     setTotalSections(0);
     if (combinedText.length < 500) {
@@ -703,15 +725,15 @@ export default function Home() {
       .filter((material) => material.status === "ready")
       .map((material) => material.name);
     const studyContext = buildStudyContext(config, fileNames.length ? fileNames : ["texto pegado"]);
-    const modelPreference: "speed" | "auto" | "capability" =
-      config.length === "short" ? "speed" : config.length === "long" ? "capability" : "auto";
+    const generationPlan = buildLocalSummaryPlan(totalWords, config.length);
     const sectionContext = `${studyContext}
 Trabajá exclusivamente con el fragmento recibido. No arrastres temas de otra sección ni completes con conocimiento general.
 Identificá quién sostiene cada tesis y no atribuyas al autor comentado una interpretación formulada por quien lo analiza.
 No conviertas bibliografías, índices, carátulas, encabezados ni títulos aislados en conclusiones. Mencioná un autor únicamente si el fragmento desarrolla una idea atribuida de forma explícita.
 Priorizá únicamente información verificable y útil para estudiar: idea central, conceptos, relaciones, argumentos, ejemplos y críticas.
 Omití introducciones genéricas y frases que no agreguen contenido. Si el fragmento comienza o termina a mitad de una idea, marcá [Fragmento incompleto] sin inventar la continuación.
-Cerrá cada punto con una oración completa.`;
+Cerrá cada punto con una oración completa.
+${generationPlan.optimized ? "Este es un documento enorme: elegí sólo las ideas de mayor valor académico y evitá repeticiones. Cada punto debe ser breve, específico y atribuible al material." : ""}`;
     let chunkSummarizer: Summarizer | null = null;
     let finalSummarizer: Summarizer | null = null;
     let keyPointSummarizer: Summarizer | null = null;
@@ -719,14 +741,15 @@ Cerrá cada punto con una oración completa.`;
     let plannedTotal = 0;
     let plannedLabels: string[] = [];
     let recoveredSections = 0;
+    const sectionDurations: number[] = [];
 
     try {
       chunkSummarizer = await Summarizer.create({
         sharedContext: studyContext,
-        type: "tldr",
-        format: "plain-text",
-        length: "long",
-        preference: modelPreference,
+        type: generationPlan.sectionType,
+        format: generationPlan.sectionFormat,
+        length: generationPlan.sectionLength,
+        preference: generationPlan.preference,
         expectedInputLanguages: ["es"],
         expectedContextLanguages: ["es"],
         outputLanguage: "es",
@@ -741,9 +764,13 @@ Cerrá cada punto con una oración completa.`;
         },
       });
       setEngine("available");
-      setProgressText("Organizando el documento completo en secciones…");
+      setProgressText(
+        generationPlan.optimized
+          ? "Activando el modo compacto para documento enorme…"
+          : "Organizando el documento completo en secciones…",
+      );
       setProgressPercent(8);
-      const chunks = splitByStructure(combinedText, 16_000, 0);
+      const chunks = splitByStructure(combinedText, generationPlan.chunkChars, 0);
       plannedTotal = chunks.length;
       plannedLabels = buildSectionLabels(chunks);
       setTotalSections(plannedTotal);
@@ -751,12 +778,27 @@ Cerrá cada punto con una oración completa.`;
       const partials = await runSectionSummaries({
         chunks,
         signal: controller.signal,
-        summarize: (chunk, index) => {
+        summarize: async (chunk, index) => {
           setProgressText(
-            `Comprendiendo sección ${index + 1} de ${chunks.length} · el borrador aparece al completar este tramo`,
+            `${generationPlan.optimized ? "Extrayendo lo esencial" : "Comprendiendo"} · sección ${index + 1} de ${chunks.length}`,
           );
           setProgressPercent(10 + Math.round((index / chunks.length) * 65));
-          return summarizeSafely(chunkSummarizer!, chunk, sectionContext, controller.signal);
+          const sectionStartedAt = Date.now();
+          const partial = await summarizeSafely(
+            chunkSummarizer!,
+            chunk,
+            sectionContext,
+            controller.signal,
+            0,
+            generationPlan.retryIncomplete,
+          );
+          sectionDurations.push(Math.max(1, (Date.now() - sectionStartedAt) / 1_000));
+          const recentDurations = sectionDurations.slice(-3);
+          setAverageSectionSeconds(
+            recentDurations.reduce((sum, duration) => sum + duration, 0) /
+              recentDurations.length,
+          );
+          return partial;
         },
         recover: (_sectionError, chunk) => {
           recoveredSections += 1;
@@ -767,7 +809,7 @@ Cerrá cada punto con una oración completa.`;
           setCompletedSections(progress.completed);
           setProgressPercent(10 + Math.round((progress.completed / progress.total) * 65));
           setProgressText(
-            `Comprendiendo sección ${progress.completed} de ${progress.total} · borrador disponible`,
+            `${generationPlan.optimized ? "Extracción compacta" : "Comprendiendo"} · sección ${progress.completed} de ${progress.total} · borrador disponible`,
           );
           setResult(
             buildPartialSummary(
@@ -781,13 +823,15 @@ Cerrá cada punto con una oración completa.`;
         },
       });
 
-      let condensed = partials.join("\n\n");
+      let condensed = generationPlan.optimized
+        ? buildIntegrationSource(partials, 3)
+        : partials.join("\n\n");
       finalSummarizer = await Summarizer.create({
         sharedContext: studyContext,
         type: "tldr",
         format: "plain-text",
-        length: config.length,
-        preference: modelPreference,
+        length: generationPlan.finalLength,
+        preference: generationPlan.preference,
         expectedInputLanguages: ["es"],
         expectedContextLanguages: ["es"],
         outputLanguage: "es",
@@ -795,6 +839,7 @@ Cerrá cada punto con una oración completa.`;
       });
       let pass = 0;
       while (
+        !generationPlan.optimized &&
         (await finalSummarizer.measureInputUsage(condensed, { context: studyContext })) >
           finalSummarizer.inputQuota &&
         pass < 4
@@ -809,7 +854,12 @@ Cerrá cada punto con una oración completa.`;
           );
           setProgressPercent(Math.min(88, 75 + pass * 3));
           collapsed.push(
-            await summarizeSafely(finalSummarizer, groups[index], studyContext, controller.signal),
+            await summarizeSafely(
+              finalSummarizer,
+              groups[index],
+              studyContext,
+              controller.signal,
+            ),
           );
         }
         condensed = collapsed.join("\n\n");
@@ -820,30 +870,36 @@ Cerrá cada punto con una oración completa.`;
       const overview = await summarizeSafely(
         finalSummarizer,
         condensed,
-        studyContext,
-        controller.signal,
-      );
-      keyPointSummarizer = await Summarizer.create({
-        sharedContext: studyContext,
-        type: "key-points",
-        format: "markdown",
-        length: config.length,
-        preference: modelPreference,
-        expectedInputLanguages: ["es"],
-        expectedContextLanguages: ["es"],
-        outputLanguage: "es",
-        signal: controller.signal,
-      });
-      setProgressText("Seleccionando puntos verificables…");
-      setProgressPercent(96);
-      const keyPoints = await summarizeSafely(
-        keyPointSummarizer,
-        condensed,
         `${studyContext}
+Integrá únicamente relaciones explícitas en las síntesis. No completes autores, teorías ni conclusiones con conocimiento externo.`,
+        controller.signal,
+        0,
+        generationPlan.retryIncomplete,
+      );
+      let keyPoints = "";
+      if (generationPlan.includeIntegratedKeyPoints) {
+        keyPointSummarizer = await Summarizer.create({
+          sharedContext: studyContext,
+          type: "key-points",
+          format: "markdown",
+          length: config.length,
+          preference: generationPlan.preference,
+          expectedInputLanguages: ["es"],
+          expectedContextLanguages: ["es"],
+          outputLanguage: "es",
+          signal: controller.signal,
+        });
+        setProgressText("Seleccionando puntos verificables…");
+        setProgressPercent(96);
+        keyPoints = await summarizeSafely(
+          keyPointSummarizer,
+          condensed,
+          `${studyContext}
 Seleccioná puntos que ayuden a explicar, no frases sueltas.
 No cambies atribuciones ni unas ideas de autores distintos. Si una relación no está explícita en las síntesis, omitila.`,
-        controller.signal,
-      );
+          controller.signal,
+        );
+      }
 
       const terms = extractTerms(combinedText, config.length === "long" ? 12 : 8);
       const questions = terms
@@ -865,14 +921,13 @@ No cambies atribuciones ni unas ideas de autores distintos. Si una relación no 
       }
 
 > Esta versión conserva las síntesis por sección y no vuelve a reescribirlas libremente. Usá las páginas o fragmentos indicados para verificar cada idea.
+${generationPlan.optimized ? "\n> **Modo compacto para documento enorme:** se priorizaron conceptos, relaciones y atribuciones esenciales para reducir el tiempo local. Para máxima profundidad, procesá un capítulo por vez." : ""}
 
 ## Orientación general
 
 ${overview}
 
-## Puntos clave
-
-${keyPoints}
+${keyPoints ? `## Puntos clave\n\n${keyPoints}\n` : ""}
 
 ## Recorrido fiel por secciones
 
@@ -1014,8 +1069,12 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
             ? `Descargando IA local · ${downloadProgress}%`
             : "Modo guía disponible";
   const estimatedRemainingSeconds =
-    isGenerating && completedSections > 0 && totalSections > completedSections
-      ? Math.ceil((elapsedSeconds / completedSections) * (totalSections - completedSections))
+    isGenerating && averageSectionSeconds > 0 && totalSections > 0
+      ? Math.ceil(
+          averageSectionSeconds *
+            (Math.max(0, totalSections - completedSections) +
+              (localSummaryPlan.optimized ? 1 : 2)),
+        )
       : 0;
 
   return (
@@ -1613,7 +1672,12 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
                       El borrador parcial ya se puede leer, copiar o descargar. Si detenés el
                       proceso, conservamos {completedSections} de {totalSections} secciones.
                       {estimatedRemainingSeconds > 0 &&
-                        ` Tiempo restante estimado: ${formatElapsed(estimatedRemainingSeconds)} (puede variar).`}
+                        ` Tiempo restante estimado según el ritmo reciente: ${formatElapsed(estimatedRemainingSeconds)} (puede variar).`}
+                    </small>
+                  )}
+                  {isGenerating && localSummaryPlan.optimized && (
+                    <small>
+                      Modo compacto activo: menos texto repetido y una sola integración final.
                     </small>
                   )}
                   {isGenerating && (
