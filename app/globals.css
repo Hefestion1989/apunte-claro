@@ -1162,6 +1162,51 @@ fieldset {
   color: var(--teal-deep);
 }
 
+.progress-block {
+  margin-top: 11px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #ecf6e7;
+  color: var(--teal-deep);
+}
+
+.progress-block .progress-message {
+  margin: 0;
+  padding: 0;
+}
+
+.progress-message > span:nth-child(2) {
+  flex: 1;
+}
+
+.progress-message strong {
+  font-size: 10px;
+}
+
+.progress-track {
+  height: 7px;
+  margin-top: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(14, 95, 83, 0.14);
+}
+
+.progress-track > span {
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--teal), var(--mint-deep));
+  transition: width 220ms ease;
+}
+
+.progress-block small {
+  display: block;
+  margin-top: 8px;
+  color: var(--ink-soft);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
 .error-message {
   border: 1px solid #f0b4a2;
   background: #fff2ed;
@@ -1202,6 +1247,11 @@ fieldset {
   min-height: 47px;
   padding: 0 16px;
   font-size: 12px;
+}
+
+.cancel-button {
+  border-color: #df8d73;
+  color: #8b3d28;
 }
 
 .secondary-button {

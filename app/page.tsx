@@ -1,6 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  buildExternalPackage,
+  buildPartialSummary,
+  fitChunksToQuota,
+  runSectionSummaries,
+  splitByStructure,
+  SummaryCancelled,
+} from "@/lib/summary-pipeline";
 
 type Material = {
   id: string;
@@ -33,7 +41,7 @@ type StudyConfig = {
 };
 
 const MAX_FILE_BYTES = 18 * 1024 * 1024;
-const MAX_TOTAL_CHARS = 280_000;
+const MAX_LOCAL_CHARS = 1_500_000;
 
 const EXTERNAL_PROVIDERS: Record<
   ExternalProvider,
@@ -212,36 +220,6 @@ function wordCount(text: string) {
   return text.trim() ? text.trim().split(/\s+/).length : 0;
 }
 
-function splitByStructure(text: string, maxChars = 7_500, overlap = 450) {
-  const sections = text
-    .split(/\n{2,}|(?=\n(?:#{1,4}\s|[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s]{5,}\n))/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-  const chunks: string[] = [];
-  let current = "";
-
-  const pushCurrent = () => {
-    if (!current.trim()) return;
-    chunks.push(current.trim());
-    current = current.slice(Math.max(0, current.length - overlap));
-  };
-
-  for (const section of sections) {
-    if (section.length > maxChars) {
-      const sentences = section.split(/(?<=[.!?])\s+/);
-      for (const sentence of sentences) {
-        if ((current + "\n" + sentence).length > maxChars) pushCurrent();
-        current = `${current}\n${sentence}`.trim();
-      }
-      continue;
-    }
-    if ((current + "\n\n" + section).length > maxChars) pushCurrent();
-    current = `${current}\n\n${section}`.trim();
-  }
-  if (current.trim()) chunks.push(current.trim());
-  return chunks;
-}
-
 function extractTerms(text: string, limit = 10) {
   const words = text
     .toLowerCase()
@@ -365,6 +343,14 @@ ${terms.map((term) => `- ${term}`).join("\n")}
 Abrí esta página en Chrome actualizado desde una computadora para usar la IA local, o copiá la instrucción optimizada en una herramienta de IA junto con el material.`;
 }
 
+function fallbackSection(text: string, config: StudyConfig) {
+  const map = fallbackMap(text, { ...config, length: "short" });
+  return `[Sección organizada sin IA generativa]\n\n${map
+    .replace(/^# Mapa previo del material\s*/i, "")
+    .replace(/## Siguiente paso[\s\S]*$/i, "")
+    .trim()}`;
+}
+
 async function readPdf(file: File) {
   const pdfjs = await import("pdfjs-dist");
   pdfjs.GlobalWorkerOptions.workerSrc = new URL(
@@ -407,15 +393,18 @@ async function summarizeSafely(
   summarizer: Summarizer,
   input: string,
   context: string,
+  signal?: AbortSignal,
 ) {
+  if (signal?.aborted) throw new DOMException("Cancelado", "AbortError");
   const usage = await summarizer.measureInputUsage(input, { context });
   if (usage <= summarizer.inputQuota) {
-    return summarizer.summarize(input, { context });
+    return summarizer.summarize(input, { context, signal });
   }
-  const halves = splitByStructure(input, Math.max(2_500, Math.floor(input.length / 2)), 250);
+  const halves = splitByStructure(input, Math.max(1_200, Math.floor(input.length / 2)), 0);
+  if (halves.length < 2) return summarizer.summarize(input, { context, signal });
   const outputs: string[] = [];
   for (const half of halves) {
-    outputs.push(await summarizer.summarize(half, { context }));
+    outputs.push(await summarizeSafely(summarizer, half, context, signal));
   }
   return outputs.join("\n");
 }
@@ -434,6 +423,9 @@ export default function Home() {
   const [isReading, setIsReading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [progressText, setProgressText] = useState("");
+  const [progressPercent, setProgressPercent] = useState(0);
+  const [completedSections, setCompletedSections] = useState(0);
+  const [totalSections, setTotalSections] = useState(0);
   const [result, setResult] = useState("");
   const [resultMode, setResultMode] = useState<"summary" | "prompt">("summary");
   const [useMode, setUseMode] = useState<UseMode | null>(null);
@@ -443,6 +435,7 @@ export default function Home() {
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const generationControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -483,10 +476,14 @@ export default function Home() {
     const pasted = pastedText.trim()
       ? `\n\n===== TEXTO PEGADO =====\n\n${cleanText(pastedText)}`
       : "";
-    return cleanText(`${fileText}${pasted}`).slice(0, MAX_TOTAL_CHARS);
+    return cleanText(`${fileText}${pasted}`);
   }, [materials, pastedText]);
 
   const totalWords = wordCount(combinedText);
+  const estimatedSections = useMemo(
+    () => (combinedText.length ? splitByStructure(combinedText).length : 0),
+    [combinedText],
+  );
   const promptText = useMemo(
     () =>
       buildAiPrompt(
@@ -618,31 +615,44 @@ export default function Home() {
     setError("");
     setCopied(false);
     setResultMode("summary");
+    setResult("");
+    setProgressText("");
+    setProgressPercent(0);
+    setCompletedSections(0);
+    setTotalSections(0);
     if (combinedText.length < 500) {
       setError("Agregá al menos unas páginas de material o pegá un texto más extenso.");
       return;
     }
-    if (combinedText.length >= MAX_TOTAL_CHARS) {
+    if (combinedText.length > MAX_LOCAL_CHARS) {
       setError(
-        "El material supera el límite de esta sesión. Se usarán los primeros 280.000 caracteres; para estudiar mejor, separalo por capítulos.",
+        "Este documento es demasiado grande para procesarlo de forma segura en una sola sesión local. No se recortó nada: separalo por capítulos o preparalo para una IA externa.",
       );
+      return;
     }
     if (typeof Summarizer === "undefined" || engine === "unavailable") {
       setResult(fallbackMap(combinedText, config));
+      setProgressText("Mapa previo listo. Este navegador no ofrece la IA local.");
+      setProgressPercent(100);
       return;
     }
 
     setIsGenerating(true);
     setProgressText("Preparando la IA local…");
     const controller = new AbortController();
+    generationControllerRef.current = controller;
     const fileNames = materials
       .filter((material) => material.status === "ready")
       .map((material) => material.name);
     const studyContext = buildStudyContext(config, fileNames.length ? fileNames : ["texto pegado"]);
+    const sectionContext = `${studyContext} Esta es una sección de un material más extenso. Conservá los conceptos y relaciones necesarios para la síntesis global.`;
     let chunkSummarizer: Summarizer | null = null;
     let finalSummarizer: Summarizer | null = null;
     let keyPointSummarizer: Summarizer | null = null;
     let languageSession: LanguageModel | null = null;
+    let completedPartials: string[] = [];
+    let plannedTotal = 0;
+    let recoveredSections = 0;
 
     try {
       chunkSummarizer = await Summarizer.create({
@@ -660,22 +670,47 @@ export default function Home() {
           monitor.addEventListener("downloadprogress", (event) => {
             setDownloadProgress(Math.round(event.loaded * 100));
             setProgressText(`Descargando la IA local… ${Math.round(event.loaded * 100)}%`);
+            setProgressPercent(Math.max(1, Math.round(event.loaded * 8)));
           });
         },
       });
       setEngine("available");
-      const chunks = splitByStructure(combinedText);
-      const partials: string[] = [];
-      for (let index = 0; index < chunks.length; index += 1) {
-        setProgressText(`Comprendiendo sección ${index + 1} de ${chunks.length}…`);
-        partials.push(
-          await summarizeSafely(
-            chunkSummarizer,
-            chunks[index],
-            `${studyContext} Esta es una sección de un material más extenso. Conservá los conceptos y relaciones necesarios para la síntesis global.`,
-          ),
-        );
-      }
+      setProgressText("Organizando el documento completo en secciones…");
+      setProgressPercent(8);
+      const chunks = await fitChunksToQuota(
+        splitByStructure(combinedText),
+        (chunk) => chunkSummarizer!.measureInputUsage(chunk, { context: sectionContext }),
+        chunkSummarizer.inputQuota,
+        controller.signal,
+      );
+      plannedTotal = chunks.length;
+      setTotalSections(plannedTotal);
+
+      const partials = await runSectionSummaries({
+        chunks,
+        signal: controller.signal,
+        summarize: (chunk) =>
+          summarizeSafely(chunkSummarizer!, chunk, sectionContext, controller.signal),
+        recover: (_sectionError, chunk) => {
+          recoveredSections += 1;
+          return fallbackSection(chunk, config);
+        },
+        onProgress(progress) {
+          completedPartials = progress.partials;
+          setCompletedSections(progress.completed);
+          setProgressPercent(10 + Math.round((progress.completed / progress.total) * 65));
+          setProgressText(
+            `Comprendiendo sección ${progress.completed} de ${progress.total} · borrador disponible`,
+          );
+          setResult(
+            buildPartialSummary(
+              progress.partials,
+              progress.total,
+              config.topic || config.subject || "Resumen de estudio",
+            ),
+          );
+        },
+      });
 
       let condensed = partials.join("\n\n");
       finalSummarizer = await Summarizer.create({
@@ -687,6 +722,7 @@ export default function Home() {
         expectedInputLanguages: ["es"],
         expectedContextLanguages: ["es"],
         outputLanguage: "es",
+        signal: controller.signal,
       });
       let pass = 0;
       while (
@@ -694,18 +730,35 @@ export default function Home() {
           finalSummarizer.inputQuota &&
         pass < 4
       ) {
+        if (controller.signal.aborted) throw new SummaryCancelled(completedPartials, plannedTotal);
         pass += 1;
-        const groups = splitByStructure(condensed, 6_500, 0);
+        const groups = await fitChunksToQuota(
+          splitByStructure(condensed, 16_000, 0),
+          (chunk) => finalSummarizer!.measureInputUsage(chunk, { context: studyContext }),
+          finalSummarizer.inputQuota,
+          controller.signal,
+        );
         const collapsed: string[] = [];
         for (let index = 0; index < groups.length; index += 1) {
-          setProgressText(`Integrando conceptos · etapa ${pass}, parte ${index + 1}…`);
-          collapsed.push(await summarizeSafely(finalSummarizer, groups[index], studyContext));
+          setProgressText(
+            `Integrando conceptos · etapa ${pass}, parte ${index + 1} de ${groups.length}…`,
+          );
+          setProgressPercent(Math.min(88, 75 + pass * 3));
+          collapsed.push(
+            await summarizeSafely(finalSummarizer, groups[index], studyContext, controller.signal),
+          );
         }
         condensed = collapsed.join("\n\n");
       }
 
       setProgressText("Armando el resumen de estudio…");
-      const overview = await summarizeSafely(finalSummarizer, condensed, studyContext);
+      setProgressPercent(90);
+      const overview = await summarizeSafely(
+        finalSummarizer,
+        condensed,
+        studyContext,
+        controller.signal,
+      );
       keyPointSummarizer = await Summarizer.create({
         sharedContext: studyContext,
         type: "key-points",
@@ -715,11 +768,13 @@ export default function Home() {
         expectedInputLanguages: ["es"],
         expectedContextLanguages: ["es"],
         outputLanguage: "es",
+        signal: controller.signal,
       });
       const keyPoints = await summarizeSafely(
         keyPointSummarizer,
         condensed,
         `${studyContext} Seleccioná puntos que ayuden a explicar, no frases sueltas.`,
+        controller.signal,
       );
 
       const terms = extractTerms(combinedText, config.length === "long" ? 12 : 8);
@@ -755,6 +810,7 @@ ${questions}
 - Verificá nombres, fechas, cifras y atribuciones contra el material.
 - Si una idea importante no aparece, agregala después de releer esa sección.
 - Explicá el tema en voz alta: si no podés conectar dos conceptos, marcá esa relación para revisar.
+${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el modo de respaldo porque la IA local falló en ese tramo.` : ""}
 `;
 
       if (typeof LanguageModel !== "undefined") {
@@ -765,10 +821,12 @@ ${questions}
           });
           if (languageAvailability !== "unavailable") {
             setProgressText("Dándole estructura académica al resultado…");
+            setProgressPercent(96);
             languageSession = await LanguageModel.create({
               expectedInputs: [{ type: "text", languages: ["es"] }],
               expectedOutputs: [{ type: "text", languages: ["es"] }],
               samplingMode: "most-predictable",
+              signal: controller.signal,
               initialPrompts: [
                 {
                   role: "system",
@@ -784,28 +842,78 @@ ${questions}
             if (structured.trim().length > 400) finalText = structured.trim();
           }
         } catch {
+          if (controller.signal.aborted) {
+            throw new SummaryCancelled(completedPartials, plannedTotal);
+          }
           // La salida de Summarizer sigue siendo válida si Prompt API no está lista.
         }
       }
 
       setResult(finalText);
-      setProgressText("Resumen listo para revisar.");
+      setProgressText("Resumen completo listo para revisar.");
+      setProgressPercent(100);
     } catch (generationError) {
+      if (generationError instanceof SummaryCancelled || controller.signal.aborted) {
+        const partials =
+          generationError instanceof SummaryCancelled
+            ? generationError.partials
+            : completedPartials;
+        if (partials.length) {
+          setResult(
+            buildPartialSummary(
+              partials,
+              plannedTotal || partials.length,
+              config.topic || config.subject || "Resumen de estudio",
+              "cancelled",
+            ),
+          );
+        } else {
+          setResult("# Resumen detenido\n\nLa generación se canceló antes de completar la primera sección.");
+        }
+        setProgressText(
+          partials.length
+            ? `Detenido. Conservamos ${partials.length} de ${plannedTotal || partials.length} secciones.`
+            : "Generación detenida.",
+        );
+        setProgressPercent(
+          plannedTotal ? Math.round((partials.length / plannedTotal) * 75) : 0,
+        );
+        return;
+      }
       const message =
         generationError instanceof Error ? generationError.message : "No se pudo generar el resumen.";
       setError(
         message.includes("language") || message.includes("Language")
           ? "La IA local todavía no tiene español disponible en este navegador. Actualizá Chrome y volvé a intentar."
-          : "La IA local no pudo completar esta sesión. Probá con un capítulo más corto o usá la instrucción optimizada.",
+          : completedPartials.length
+            ? "La IA local se interrumpió, pero conservamos el borrador parcial para que no pierdas el trabajo."
+            : "La IA local no pudo completar esta sesión. Podés volver a intentar o usar la instrucción optimizada.",
       );
-      if (!result) setResult(fallbackMap(combinedText, config));
+      setResult(
+        completedPartials.length
+          ? buildPartialSummary(
+              completedPartials,
+              plannedTotal || completedPartials.length,
+              config.topic || config.subject || "Resumen de estudio",
+              "error",
+            )
+          : fallbackMap(combinedText, config),
+      );
     } finally {
       chunkSummarizer?.destroy();
       finalSummarizer?.destroy();
       keyPointSummarizer?.destroy();
       languageSession?.destroy();
+      if (generationControllerRef.current === controller) {
+        generationControllerRef.current = null;
+      }
       setIsGenerating(false);
     }
+  }
+
+  function cancelGeneration() {
+    generationControllerRef.current?.abort();
+    setProgressText("Deteniendo y conservando lo ya procesado…");
   }
 
   async function copyCurrent() {
@@ -836,18 +944,7 @@ ${questions}
       return;
     }
     const destination = destinationName;
-    const packageText = `# Paquete de estudio para ${destination}
-
-## Instrucción
-
-${promptText}
-
----
-
-## Material de estudio
-
-${combinedText}
-`;
+    const packageText = buildExternalPackage(destination, promptText, combinedText);
     const blob = new Blob([packageText], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -1138,7 +1235,11 @@ ${combinedText}
               />
               <div className="material-meter">
                 <span>{totalWords.toLocaleString("es-UY")} palabras listas</span>
-                <span>ideal: un capítulo por sesión</span>
+                <span>
+                  {estimatedSections
+                    ? `estimación inicial: ${estimatedSections} secciones`
+                    : "agregá material para comenzar"}
+                </span>
               </div>
             </section>
 
@@ -1351,8 +1452,14 @@ ${combinedText}
                 ) : (
                   <div className="empty-result">
                     <span aria-hidden="true">◎</span>
-                    <strong>Tu guía va a aparecer acá</strong>
-                    <p>Agregá material, elegí el enfoque y dejá que la IA conecte las ideas.</p>
+                    <strong>
+                      {isGenerating ? "Preparando la primera parte…" : "Tu guía va a aparecer acá"}
+                    </strong>
+                    <p>
+                      {isGenerating
+                        ? "En cuanto termine la primera sección vas a poder leer un borrador, sin esperar al final."
+                        : "Agregá material, elegí el enfoque y dejá que la IA conecte las ideas."}
+                    </p>
                   </div>
                 )
               ) : (
@@ -1362,9 +1469,28 @@ ${combinedText}
               )}
 
               {progressText && (
-                <div className="progress-message" aria-live="polite">
-                  <span className={isGenerating ? "spinner" : "done-dot"} />
-                  {progressText}
+                <div className="progress-block" aria-live="polite">
+                  <div className="progress-message">
+                    <span className={isGenerating ? "spinner" : "done-dot"} />
+                    <span>{progressText}</span>
+                    <strong>{progressPercent}%</strong>
+                  </div>
+                  <div
+                    className="progress-track"
+                    role="progressbar"
+                    aria-label="Progreso del resumen"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={progressPercent}
+                  >
+                    <span style={{ width: `${progressPercent}%` }} />
+                  </div>
+                  {isGenerating && completedSections > 0 && (
+                    <small>
+                      El borrador parcial ya se puede leer, copiar o descargar. Si detenés el
+                      proceso, conservamos {completedSections} de {totalSections} secciones.
+                    </small>
+                  )}
                 </div>
               )}
               {error && <div className="error-message" role="alert">{error}</div>}
@@ -1384,6 +1510,15 @@ ${combinedText}
                         ? `Preparar para ${destinationName}`
                         : "Generar resumen inteligente"}
                 </button>
+                {isGenerating && useMode === "local" && (
+                  <button
+                    type="button"
+                    className="secondary-button cancel-button"
+                    onClick={cancelGeneration}
+                  >
+                    Detener y conservar
+                  </button>
+                )}
                 <button
                   type="button"
                   className="secondary-button"

@@ -60,11 +60,16 @@ test("keeps summarization local and includes supported material readers", async 
   assert.match(page, /pdfjs-dist/);
   assert.match(page, /mammoth/);
   assert.match(page, /downloadExternalPackage/);
+  assert.match(page, /buildPartialSummary/);
+  assert.match(page, /Detener y conservar/);
+  assert.match(page, /MAX_LOCAL_CHARS/);
   assert.match(page, /https:\/\/chatgpt\.com\//);
   assert.match(page, /https:\/\/gemini\.google\.com\//);
   assert.match(page, /https:\/\/claude\.ai\//);
   assert.match(page, /https:\/\/copilot\.microsoft\.com\//);
   assert.match(page, /Descargar paquete \.txt/);
+  assert.doesNotMatch(page, /\.slice\(0,\s*MAX_TOTAL_CHARS\)/);
+  assert.doesNotMatch(page, /primeros 280\.000 caracteres/);
   assert.doesNotMatch(page, /OPENAI_API_KEY|GEMINI_API_KEY|fetch\(["']https:\/\/api\./);
   assert.match(layout, /og\.png/);
   assert.match(packageJson, /"next": "16\.2\.12"/);
