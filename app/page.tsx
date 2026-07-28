@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   buildExternalPackage,
   buildPartialSummary,
-  fitChunksToQuota,
+  buildSectionLabels,
+  isIncompleteSummary,
   runSectionSummaries,
   splitByStructure,
   SummaryCancelled,
@@ -92,9 +93,9 @@ const FORMAT_LABELS: Record<StudyConfig["format"], string> = {
 };
 
 const LENGTH_LABELS: Record<StudyConfig["length"], string> = {
-  short: "Breve",
-  medium: "Equilibrado",
-  long: "Profundo",
+  short: "Breve · más rápido",
+  medium: "Equilibrado · recomendado",
+  long: "Profundo · más lento",
 };
 
 const FOCUS_OPTIONS = [
@@ -205,6 +206,7 @@ const initialConfig: StudyConfig = {
 function cleanText(text: string) {
   return text
     .replace(/\u0000/g, "")
+    .replace(/Encuentre más documentos universitarios en https?:\/\/apunty\.com/gi, "")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{4,}/g, "\n\n\n")
     .trim();
@@ -218,6 +220,12 @@ function formatBytes(bytes: number) {
 
 function wordCount(text: string) {
   return text.trim() ? text.trim().split(/\s+/).length : 0;
+}
+
+function formatElapsed(totalSeconds: number) {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes ? `${minutes} min ${String(seconds).padStart(2, "0")} s` : `${seconds} s`;
 }
 
 function extractTerms(text: string, limit = 10) {
@@ -394,17 +402,43 @@ async function summarizeSafely(
   input: string,
   context: string,
   signal?: AbortSignal,
+  depth = 0,
 ) {
   if (signal?.aborted) throw new DOMException("Cancelado", "AbortError");
   const usage = await summarizer.measureInputUsage(input, { context });
   if (usage <= summarizer.inputQuota) {
-    return summarizer.summarize(input, { context, signal });
+    const summary = await summarizer.summarize(input, { context, signal });
+    if (isIncompleteSummary(summary) && input.length > 2_400 && depth < 2) {
+      const retryParts = splitByStructure(
+        input,
+        Math.max(2_400, Math.floor(input.length / 2)),
+        0,
+      );
+      if (retryParts.length > 1) {
+        const completed: string[] = [];
+        for (const part of retryParts) {
+          completed.push(
+            await summarizeSafely(
+              summarizer,
+              part,
+              `${context} Este subfragmento se generó porque la primera síntesis quedó cortada. Cerrá todas las ideas con oraciones completas.`,
+              signal,
+              depth + 1,
+            ),
+          );
+        }
+        return completed.join("\n\n");
+      }
+    }
+    return isIncompleteSummary(summary)
+      ? `${summary.trim()}\n\n[Requiere revisión: la IA local dejó esta idea incompleta.]`
+      : summary;
   }
   const halves = splitByStructure(input, Math.max(1_200, Math.floor(input.length / 2)), 0);
   if (halves.length < 2) return summarizer.summarize(input, { context, signal });
   const outputs: string[] = [];
   for (const half of halves) {
-    outputs.push(await summarizeSafely(summarizer, half, context, signal));
+    outputs.push(await summarizeSafely(summarizer, half, context, signal, depth + 1));
   }
   return outputs.join("\n");
 }
@@ -418,12 +452,12 @@ export default function Home() {
   const [pastedText, setPastedText] = useState("");
   const [config, setConfig] = useState<StudyConfig>(initialConfig);
   const [engine, setEngine] = useState<EngineState>("checking");
-  const [hasPromptApi, setHasPromptApi] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [isReading, setIsReading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [progressText, setProgressText] = useState("");
   const [progressPercent, setProgressPercent] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [completedSections, setCompletedSections] = useState(0);
   const [totalSections, setTotalSections] = useState(0);
   const [result, setResult] = useState("");
@@ -431,11 +465,12 @@ export default function Home() {
   const [useMode, setUseMode] = useState<UseMode | null>(null);
   const [externalProvider, setExternalProvider] = useState<ExternalProvider | null>(null);
   const [showModeChooser, setShowModeChooser] = useState(true);
-  const [chooserStep, setChooserStep] = useState<"mode" | "provider">("mode");
+  const [chooserStep, setChooserStep] = useState<"mode" | "provider" | "about">("mode");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const generationControllerRef = useRef<AbortController | null>(null);
+  const generationStartedAtRef = useRef<number | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -454,10 +489,7 @@ export default function Home() {
           expectedContextLanguages: ["es"],
           outputLanguage: "es",
         });
-        if (active) {
-          setEngine(availability);
-          setHasPromptApi(typeof LanguageModel !== "undefined");
-        }
+        if (active) setEngine(availability);
       } catch {
         if (active) setEngine("unavailable");
       }
@@ -467,6 +499,18 @@ export default function Home() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!isGenerating || generationStartedAtRef.current === null) return;
+    const updateElapsed = () => {
+      setElapsedSeconds(
+        Math.max(0, Math.floor((Date.now() - generationStartedAtRef.current!) / 1_000)),
+      );
+    };
+    updateElapsed();
+    const timer = window.setInterval(updateElapsed, 1_000);
+    return () => window.clearInterval(timer);
+  }, [isGenerating]);
 
   const combinedText = useMemo(() => {
     const fileText = materials
@@ -481,7 +525,7 @@ export default function Home() {
 
   const totalWords = wordCount(combinedText);
   const estimatedSections = useMemo(
-    () => (combinedText.length ? splitByStructure(combinedText).length : 0),
+    () => (combinedText.length ? splitByStructure(combinedText, 16_000, 0).length : 0),
     [combinedText],
   );
   const promptText = useMemo(
@@ -502,7 +546,9 @@ export default function Home() {
     if (materials.length > 1)
       items.push("Indicá autores o unidades si querés comparar sin mezclar atribuciones.");
     if (totalWords > 35_000)
-      items.push("Para un resultado más profundo, resumí por capítulo y luego uní las síntesis.");
+      items.push(
+        "Con más de 35.000 palabras, la IA local puede tardar decenas de minutos. Por capítulos es más práctico y preciso.",
+      );
     if (config.focus.length < 2)
       items.push("Elegí al menos dos focos, por ejemplo Conceptos + Relaciones.");
     if (!config.notes.trim())
@@ -596,6 +642,16 @@ export default function Home() {
     setShowModeChooser(true);
   }
 
+  function openFreeInfo() {
+    setChooserStep("about");
+    setShowModeChooser(true);
+  }
+
+  function closeFreeInfo() {
+    setChooserStep("mode");
+    setShowModeChooser(false);
+  }
+
   function prepareExternalPackage() {
     setError("");
     setCopied(false);
@@ -618,6 +674,7 @@ export default function Home() {
     setResult("");
     setProgressText("");
     setProgressPercent(0);
+    setElapsedSeconds(0);
     setCompletedSections(0);
     setTotalSections(0);
     if (combinedText.length < 500) {
@@ -637,6 +694,7 @@ export default function Home() {
       return;
     }
 
+    generationStartedAtRef.current = Date.now();
     setIsGenerating(true);
     setProgressText("Preparando la IA local…");
     const controller = new AbortController();
@@ -645,13 +703,21 @@ export default function Home() {
       .filter((material) => material.status === "ready")
       .map((material) => material.name);
     const studyContext = buildStudyContext(config, fileNames.length ? fileNames : ["texto pegado"]);
-    const sectionContext = `${studyContext} Esta es una sección de un material más extenso. Conservá los conceptos y relaciones necesarios para la síntesis global.`;
+    const modelPreference: "speed" | "auto" | "capability" =
+      config.length === "short" ? "speed" : config.length === "long" ? "capability" : "auto";
+    const sectionContext = `${studyContext}
+Trabajá exclusivamente con el fragmento recibido. No arrastres temas de otra sección ni completes con conocimiento general.
+Identificá quién sostiene cada tesis y no atribuyas al autor comentado una interpretación formulada por quien lo analiza.
+No conviertas bibliografías, índices, carátulas, encabezados ni títulos aislados en conclusiones. Mencioná un autor únicamente si el fragmento desarrolla una idea atribuida de forma explícita.
+Priorizá únicamente información verificable y útil para estudiar: idea central, conceptos, relaciones, argumentos, ejemplos y críticas.
+Omití introducciones genéricas y frases que no agreguen contenido. Si el fragmento comienza o termina a mitad de una idea, marcá [Fragmento incompleto] sin inventar la continuación.
+Cerrá cada punto con una oración completa.`;
     let chunkSummarizer: Summarizer | null = null;
     let finalSummarizer: Summarizer | null = null;
     let keyPointSummarizer: Summarizer | null = null;
-    let languageSession: LanguageModel | null = null;
     let completedPartials: string[] = [];
     let plannedTotal = 0;
+    let plannedLabels: string[] = [];
     let recoveredSections = 0;
 
     try {
@@ -660,7 +726,7 @@ export default function Home() {
         type: "tldr",
         format: "plain-text",
         length: "long",
-        preference: "capability",
+        preference: modelPreference,
         expectedInputLanguages: ["es"],
         expectedContextLanguages: ["es"],
         outputLanguage: "es",
@@ -677,20 +743,21 @@ export default function Home() {
       setEngine("available");
       setProgressText("Organizando el documento completo en secciones…");
       setProgressPercent(8);
-      const chunks = await fitChunksToQuota(
-        splitByStructure(combinedText),
-        (chunk) => chunkSummarizer!.measureInputUsage(chunk, { context: sectionContext }),
-        chunkSummarizer.inputQuota,
-        controller.signal,
-      );
+      const chunks = splitByStructure(combinedText, 16_000, 0);
       plannedTotal = chunks.length;
+      plannedLabels = buildSectionLabels(chunks);
       setTotalSections(plannedTotal);
 
       const partials = await runSectionSummaries({
         chunks,
         signal: controller.signal,
-        summarize: (chunk) =>
-          summarizeSafely(chunkSummarizer!, chunk, sectionContext, controller.signal),
+        summarize: (chunk, index) => {
+          setProgressText(
+            `Comprendiendo sección ${index + 1} de ${chunks.length} · el borrador aparece al completar este tramo`,
+          );
+          setProgressPercent(10 + Math.round((index / chunks.length) * 65));
+          return summarizeSafely(chunkSummarizer!, chunk, sectionContext, controller.signal);
+        },
         recover: (_sectionError, chunk) => {
           recoveredSections += 1;
           return fallbackSection(chunk, config);
@@ -707,6 +774,8 @@ export default function Home() {
               progress.partials,
               progress.total,
               config.topic || config.subject || "Resumen de estudio",
+              "working",
+              plannedLabels,
             ),
           );
         },
@@ -718,7 +787,7 @@ export default function Home() {
         type: "tldr",
         format: "plain-text",
         length: config.length,
-        preference: "capability",
+        preference: modelPreference,
         expectedInputLanguages: ["es"],
         expectedContextLanguages: ["es"],
         outputLanguage: "es",
@@ -732,12 +801,7 @@ export default function Home() {
       ) {
         if (controller.signal.aborted) throw new SummaryCancelled(completedPartials, plannedTotal);
         pass += 1;
-        const groups = await fitChunksToQuota(
-          splitByStructure(condensed, 16_000, 0),
-          (chunk) => finalSummarizer!.measureInputUsage(chunk, { context: studyContext }),
-          finalSummarizer.inputQuota,
-          controller.signal,
-        );
+        const groups = splitByStructure(condensed, 16_000, 0);
         const collapsed: string[] = [];
         for (let index = 0; index < groups.length; index += 1) {
           setProgressText(
@@ -764,16 +828,20 @@ export default function Home() {
         type: "key-points",
         format: "markdown",
         length: config.length,
-        preference: "capability",
+        preference: modelPreference,
         expectedInputLanguages: ["es"],
         expectedContextLanguages: ["es"],
         outputLanguage: "es",
         signal: controller.signal,
       });
+      setProgressText("Seleccionando puntos verificables…");
+      setProgressPercent(96);
       const keyPoints = await summarizeSafely(
         keyPointSummarizer,
         condensed,
-        `${studyContext} Seleccioná puntos que ayuden a explicar, no frases sueltas.`,
+        `${studyContext}
+Seleccioná puntos que ayuden a explicar, no frases sueltas.
+No cambies atribuciones ni unas ideas de autores distintos. Si una relación no está explícita en las síntesis, omitila.`,
         controller.signal,
       );
 
@@ -783,19 +851,32 @@ export default function Home() {
         .map((term) => `- ¿Cómo explicarías **${term}** con tus propias palabras y con qué otra idea se relaciona?`)
         .join("\n");
 
-      let finalText = `# ${config.topic || config.subject || "Resumen de estudio"}
+      const sectionGuide = partials
+        .map(
+          (partial, index) =>
+            `### ${plannedLabels[index] || `Sección ${index + 1}`}\n\n${partial}`,
+        )
+        .join("\n\n");
+
+      const finalText = `# ${config.topic || config.subject || "Resumen de estudio"}
 
 > **Objetivo:** ${PURPOSE_LABELS[config.purpose]} · **Nivel:** ${config.level} · **Fuentes:** ${
         fileNames.length ? fileNames.join(", ") : "texto pegado"
       }
 
-## Idea central
+> Esta versión conserva las síntesis por sección y no vuelve a reescribirlas libremente. Usá las páginas o fragmentos indicados para verificar cada idea.
+
+## Orientación general
 
 ${overview}
 
 ## Puntos clave
 
 ${keyPoints}
+
+## Recorrido fiel por secciones
+
+${sectionGuide}
 
 ## Conceptos para revisar
 
@@ -813,42 +894,6 @@ ${questions}
 ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el modo de respaldo porque la IA local falló en ese tramo.` : ""}
 `;
 
-      if (typeof LanguageModel !== "undefined") {
-        try {
-          const languageAvailability = await LanguageModel.availability({
-            expectedInputs: [{ type: "text", languages: ["es"] }],
-            expectedOutputs: [{ type: "text", languages: ["es"] }],
-          });
-          if (languageAvailability !== "unavailable") {
-            setProgressText("Dándole estructura académica al resultado…");
-            setProgressPercent(96);
-            languageSession = await LanguageModel.create({
-              expectedInputs: [{ type: "text", languages: ["es"] }],
-              expectedOutputs: [{ type: "text", languages: ["es"] }],
-              samplingMode: "most-predictable",
-              signal: controller.signal,
-              initialPrompts: [
-                {
-                  role: "system",
-                  content:
-                    "Sos un asistente de estudio riguroso. Organizás únicamente la información provista, no agregás conocimiento externo, no inventás y marcás los límites del material. Respondés en español claro y en Markdown.",
-                },
-              ],
-            });
-            const structured = await languageSession.prompt(
-              `${buildAiPrompt(config, fileNames)}\n\nMATERIAL YA SINTETIZADO POR SECCIONES:\n${condensed}`,
-              { signal: controller.signal },
-            );
-            if (structured.trim().length > 400) finalText = structured.trim();
-          }
-        } catch {
-          if (controller.signal.aborted) {
-            throw new SummaryCancelled(completedPartials, plannedTotal);
-          }
-          // La salida de Summarizer sigue siendo válida si Prompt API no está lista.
-        }
-      }
-
       setResult(finalText);
       setProgressText("Resumen completo listo para revisar.");
       setProgressPercent(100);
@@ -865,6 +910,7 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
               plannedTotal || partials.length,
               config.topic || config.subject || "Resumen de estudio",
               "cancelled",
+              plannedLabels,
             ),
           );
         } else {
@@ -896,6 +942,7 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
               plannedTotal || completedPartials.length,
               config.topic || config.subject || "Resumen de estudio",
               "error",
+              plannedLabels,
             )
           : fallbackMap(combinedText, config),
       );
@@ -903,7 +950,6 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
       chunkSummarizer?.destroy();
       finalSummarizer?.destroy();
       keyPointSummarizer?.destroy();
-      languageSession?.destroy();
       if (generationControllerRef.current === controller) {
         generationControllerRef.current = null;
       }
@@ -961,14 +1007,16 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
     engine === "checking"
       ? "Comprobando IA local"
       : engine === "available"
-        ? hasPromptApi
-          ? "IA local avanzada disponible"
-          : "IA local disponible"
+        ? "IA local disponible"
         : engine === "downloadable"
           ? "IA local lista para descargar"
           : engine === "downloading"
             ? `Descargando IA local · ${downloadProgress}%`
             : "Modo guía disponible";
+  const estimatedRemainingSeconds =
+    isGenerating && completedSections > 0 && totalSections > completedSections
+      ? Math.ceil((elapsedSeconds / completedSections) * (totalSections - completedSections))
+      : 0;
 
   return (
     <main>
@@ -1037,7 +1085,7 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
                   </a>
                 </div>
               </>
-            ) : (
+            ) : chooserStep === "provider" ? (
               <>
                 <button type="button" className="provider-back" onClick={() => setChooserStep("mode")}>
                   ← Volver
@@ -1075,6 +1123,81 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
                   Vas a seguir dentro de Apunte Claro hasta que presiones “Abrir la herramienta”.
                   Tus materiales nunca se transfieren automáticamente.
                 </p>
+              </>
+            ) : (
+              <>
+                <button type="button" className="provider-back" onClick={closeFreeInfo}>
+                  ← Volver a Apunte Claro
+                </button>
+                <div className="mode-dialog-heading about-heading">
+                  <span className="mode-brand"><span className="brand-mark">A</span> Apunte Claro</span>
+                  <span className="mode-kicker">Cómo funciona de verdad</span>
+                  <h2 id="mode-title">¿Por qué puede ser gratis?</h2>
+                  <p id="mode-description">
+                    Porque en el modo local no alquilamos una IA por cada resumen: usamos la
+                    inteligencia artificial que Chrome puede ejecutar en tu propia computadora.
+                  </p>
+                </div>
+
+                <div className="about-grid">
+                  <article>
+                    <span className="about-number">01</span>
+                    <h3>El modelo es Gemini Nano</h3>
+                    <p>
+                      Apunte Claro utiliza la API Summarizer integrada en Chrome. Actualmente esa
+                      función trabaja con Gemini Nano, un modelo pequeño administrado y actualizado
+                      por el navegador.
+                    </p>
+                  </article>
+                  <article>
+                    <span className="about-number">02</span>
+                    <h3>No hay una API paga</h3>
+                    <p>
+                      En modo local no necesitás clave, crédito ni cuenta. El modelo se descarga la
+                      primera vez y después procesa el texto en el equipo. Por eso puede tardar más.
+                    </p>
+                  </article>
+                  <article>
+                    <span className="about-number">03</span>
+                    <h3>Tus apuntes quedan en el dispositivo</h3>
+                    <p>
+                      Apunte Claro no sube los archivos a un servidor de IA. Si elegís ChatGPT,
+                      Gemini, Claude o Copilot, recién compartís el material cuando vos lo copiás o
+                      adjuntás allí.
+                    </p>
+                  </article>
+                  <article>
+                    <span className="about-number">04</span>
+                    <h3>También tiene límites</h3>
+                    <p>
+                      Requiere Chrome actualizado y una computadora compatible. El modelo local
+                      puede equivocarse, tiene menos contexto que una IA de servidor y no reemplaza
+                      la revisión del material original.
+                    </p>
+                  </article>
+                </div>
+
+                <div className="model-note">
+                  <strong>¿Qué versión exacta tengo?</strong>
+                  <p>
+                    Chrome elige y actualiza el modelo según el equipo. La página no puede leer su
+                    número de versión; podés comprobarlo manualmente en{" "}
+                    <code>chrome://on-device-internals</code>.
+                  </p>
+                </div>
+
+                <div className="about-actions">
+                  <button type="button" className="primary-button" onClick={closeFreeInfo}>
+                    Entendido, volver
+                  </button>
+                  <a
+                    href="https://developer.chrome.com/docs/ai/summarizer-api"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Ver documentación oficial de Chrome ↗
+                  </a>
+                </div>
               </>
             )}
           </section>
@@ -1118,9 +1241,9 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
             <a className="primary-button" href="#crear">
               Crear mi resumen <span aria-hidden="true">→</span>
             </a>
-            <a className="text-link" href="#privacidad">
+            <button type="button" className="text-link" onClick={openFreeInfo}>
               ¿Por qué es gratuito?
-            </a>
+            </button>
           </div>
           <div className="trust-row">
             <span><AppIcon>✓</AppIcon> Sin cuenta</span>
@@ -1473,7 +1596,7 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
                   <div className="progress-message">
                     <span className={isGenerating ? "spinner" : "done-dot"} />
                     <span>{progressText}</span>
-                    <strong>{progressPercent}%</strong>
+                    <strong>{progressPercent}% · {formatElapsed(elapsedSeconds)}</strong>
                   </div>
                   <div
                     className="progress-track"
@@ -1489,6 +1612,13 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
                     <small>
                       El borrador parcial ya se puede leer, copiar o descargar. Si detenés el
                       proceso, conservamos {completedSections} de {totalSections} secciones.
+                      {estimatedRemainingSeconds > 0 &&
+                        ` Tiempo restante estimado: ${formatElapsed(estimatedRemainingSeconds)} (puede variar).`}
+                    </small>
+                  )}
+                  {isGenerating && (
+                    <small>
+                      El porcentaje indica la etapa; el tiempo muestra lo realmente transcurrido.
                     </small>
                   )}
                 </div>
@@ -1616,9 +1746,10 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
           <span className="step-kicker">Gratis de verdad</span>
           <h2>No necesita cuenta, clave ni servidor de IA.</h2>
           <p>
-            En Chrome actualizado para computadora, el modelo se ejecuta en el propio dispositivo.
-            El sitio no recibe el contenido de los apuntes. La descarga inicial del modelo puede ser grande
-            y requiere un equipo compatible; por eso siempre queda disponible la instrucción para otra IA.
+            En Chrome actualizado para computadora, Gemini Nano se ejecuta en el propio
+            dispositivo mediante la API Summarizer del navegador. El sitio no recibe el contenido
+            de los apuntes. La descarga inicial puede ser grande y requiere un equipo compatible;
+            por eso siempre queda disponible la instrucción para otra IA.
           </p>
         </div>
         <div className="privacy-facts">

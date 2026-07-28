@@ -24,6 +24,37 @@ export class SummaryCancelled extends Error {
   }
 }
 
+export function isIncompleteSummary(text: string) {
+  const ending = text.trim().replace(/[*_`>#)\]]+$/g, "").trim();
+  if (!ending) return true;
+  return /(?:\.{3}|…|\b(?:que|de|del|y|o|con|por|para|en|los|las|un|una))$/i.test(ending);
+}
+
+export function buildSectionLabels(chunks: string[]) {
+  let currentSource = "";
+
+  return chunks.map((chunk, index) => {
+    const sourceMatches = [
+      ...chunk.matchAll(/===== FUENTE:\s*(.+?)\s*=====/gi),
+    ];
+    const latestSource = sourceMatches.at(-1)?.[1]?.trim();
+    if (latestSource) currentSource = latestSource;
+
+    const pages = [
+      ...chunk.matchAll(/\[Página\s+(\d+)\]/gi),
+    ].map((match) => Number(match[1])).filter(Number.isFinite);
+    const uniquePages = [...new Set(pages)].sort((a, b) => a - b);
+    const pageLabel = uniquePages.length
+      ? uniquePages.length === 1
+        ? `página ${uniquePages[0]}`
+        : `páginas ${uniquePages[0]}–${uniquePages.at(-1)}`
+      : "";
+    const details = [currentSource, pageLabel].filter(Boolean);
+
+    return details.length ? details.join(" · ") : `Sección ${index + 1}`;
+  });
+}
+
 function throwIfCancelled(signal: AbortSignal | undefined, partials: string[], total: number) {
   if (signal?.aborted) throw new SummaryCancelled([...partials], total);
 }
@@ -154,6 +185,7 @@ export function buildPartialSummary(
   total: number,
   title: string,
   status: "working" | "cancelled" | "error" = "working",
+  labels: string[] = [],
 ) {
   const completed = partials.length;
   const statusCopy =
@@ -169,7 +201,7 @@ export function buildPartialSummary(
 
 ## Síntesis recuperada por secciones
 
-${partials.map((partial, index) => `### Sección ${index + 1}\n\n${partial}`).join("\n\n")}
+${partials.map((partial, index) => `### ${labels[index] || `Sección ${index + 1}`}\n\n${partial}`).join("\n\n")}
 
 ## Estado
 

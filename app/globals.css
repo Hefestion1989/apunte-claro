@@ -231,6 +231,97 @@ a {
   outline: none;
 }
 
+.about-heading {
+  margin-top: 8px;
+}
+
+.about-heading .mode-brand {
+  margin-bottom: 14px;
+}
+
+.about-heading h2 {
+  font-size: clamp(34px, 5vw, 52px);
+}
+
+.about-grid {
+  margin: 25px 0 14px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 11px;
+}
+
+.about-grid article {
+  position: relative;
+  min-height: 154px;
+  padding: 18px 18px 18px 54px;
+  border: 1px solid #d7ded7;
+  border-radius: 16px;
+  background: var(--white);
+}
+
+.about-number {
+  position: absolute;
+  top: 19px;
+  left: 17px;
+  color: var(--teal);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.about-grid h3 {
+  margin: 0 0 8px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 18px;
+  line-height: 1.15;
+}
+
+.about-grid p,
+.model-note p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.model-note {
+  padding: 13px 16px;
+  border-radius: 13px;
+  background: #e9f1ec;
+}
+
+.model-note strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+}
+
+.model-note code {
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: rgba(14, 95, 83, 0.09);
+  color: var(--teal-deep);
+  font-size: 10px;
+}
+
+.about-actions {
+  margin-top: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.about-actions a {
+  color: var(--teal);
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.about-actions a:hover {
+  text-decoration: underline;
+}
+
 .provider-options {
   grid-template-columns: repeat(2, 1fr);
 }
@@ -444,8 +535,11 @@ a {
 
 .text-link {
   padding: 10px 0;
+  border: 0;
   border-bottom: 1px solid currentColor;
+  background: transparent;
   color: var(--ink-soft);
+  cursor: pointer;
   font-weight: 750;
 }
 
@@ -1623,6 +1717,18 @@ footer a {
     flex-direction: column;
     align-items: center;
     gap: 7px;
+  }
+
+  .about-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .about-grid article {
+    min-height: 0;
+  }
+
+  .about-actions {
+    flex-direction: column;
   }
 
   .hero {

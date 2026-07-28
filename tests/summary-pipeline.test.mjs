@@ -4,7 +4,9 @@ import test from "node:test";
 import {
   buildExternalPackage,
   buildPartialSummary,
+  buildSectionLabels,
   fitChunksToQuota,
+  isIncompleteSummary,
   runSectionSummaries,
   splitByStructure,
   SummaryCancelled,
@@ -64,6 +66,33 @@ test("publishes a readable partial draft after every completed section", async (
     "Síntesis 2: aprendizaje",
     "Síntesis 3: percepción",
   ]);
+});
+
+test("labels summaries with the source and PDF page range", () => {
+  const chunks = [
+    "===== FUENTE: Psicología.pdf =====\n\n[Página 1]\nIntroducción\n\n[Página 2]\nConceptos",
+    "[Página 3]\nAutores\n\n[Página 4]\nRelaciones",
+    "===== FUENTE: Notas.md =====\n\nTexto sin páginas",
+  ];
+
+  assert.deepEqual(buildSectionLabels(chunks), [
+    "Psicología.pdf · páginas 1–2",
+    "Psicología.pdf · páginas 3–4",
+    "Notas.md",
+  ]);
+});
+
+test("uses traceable labels in partial summaries", () => {
+  const draft = buildPartialSummary(
+    ["Síntesis verificable."],
+    1,
+    "Psicología",
+    "working",
+    ["Dispositivos.pdf · páginas 7–9"],
+  );
+
+  assert.match(draft, /### Dispositivos\.pdf · páginas 7–9/);
+  assert.doesNotMatch(draft, /### Sección 1/);
 });
 
 test("cancels before the next section and preserves completed summaries", async () => {
@@ -141,4 +170,24 @@ test("keeps splitting until every measurable chunk fits a small quota", async ()
 
   assert.equal(fitted.every((chunk) => chunk.length <= 1_000), true);
   assert.equal(fitted.join(""), `${"a".repeat(1_200)}${"b".repeat(1_200)}`);
+});
+
+test("detects summaries cut off by the local model", () => {
+  assert.equal(
+    isIncompleteSummary("En la fase actual, los dispositivos producen procesos que..."),
+    true,
+  );
+  assert.equal(isIncompleteSummary("Agamben denomina desubjetivación a ese proceso."), false);
+});
+
+test("can disable overlap so adjacent academic topics do not contaminate each other", () => {
+  const agamben = `AGAMBEN_${"a".repeat(1_190)}`;
+  const freud = `FREUD_${"f".repeat(1_192)}`;
+  const chunks = splitByStructure(`${agamben}\n\n${freud}`, 1_200, 0);
+
+  assert.equal(chunks.length, 2);
+  assert.match(chunks[0], /^AGAMBEN_/);
+  assert.doesNotMatch(chunks[0], /FREUD_/);
+  assert.match(chunks[1], /^FREUD_/);
+  assert.doesNotMatch(chunks[1], /AGAMBEN_/);
 });

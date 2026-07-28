@@ -54,7 +54,8 @@ test("keeps summarization local and includes supported material readers", async 
   ]);
 
   assert.match(page, /Summarizer\.availability/);
-  assert.match(page, /LanguageModel\.availability/);
+  assert.doesNotMatch(page, /LanguageModel\.create|LanguageModel\.availability/);
+  assert.doesNotMatch(page, /Dándole estructura académica/);
   assert.match(page, /splitByStructure/);
   assert.match(page, /measureInputUsage/);
   assert.match(page, /pdfjs-dist/);
@@ -63,6 +64,19 @@ test("keeps summarization local and includes supported material readers", async 
   assert.match(page, /buildPartialSummary/);
   assert.match(page, /Detener y conservar/);
   assert.match(page, /MAX_LOCAL_CHARS/);
+  assert.match(page, /Gemini Nano/);
+  assert.match(page, /¿Por qué puede ser gratis\?/);
+  assert.match(page, /chrome:\/\/on-device-internals/);
+  assert.match(page, /splitByStructure\(combinedText, 16_000, 0\)/);
+  assert.match(page, /No arrastres temas de otra sección/);
+  assert.match(page, /No conviertas bibliografías, índices, carátulas/);
+  assert.match(page, /const modelPreference/);
+  assert.doesNotMatch(page, /await fitChunksToQuota/);
+  assert.match(page, /isIncompleteSummary/);
+  assert.match(page, /buildSectionLabels/);
+  assert.match(page, /Recorrido fiel por secciones/);
+  assert.match(page, /tiempo muestra lo realmente transcurrido/);
+  assert.match(page, /Tiempo restante estimado/);
   assert.match(page, /https:\/\/chatgpt\.com\//);
   assert.match(page, /https:\/\/gemini\.google\.com\//);
   assert.match(page, /https:\/\/claude\.ai\//);
