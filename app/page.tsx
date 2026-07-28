@@ -1765,7 +1765,7 @@ Apunte Claro no envió ningún archivo automáticamente.
                     <p className="external-package-explainer">
                       El paquete completo une la instrucción de estudio con el texto extraído de
                       los materiales que agregaste. Está preparado para pegarlo en {destinationName}
-                      o descargarlo y adjuntarlo allí.
+                      {" "}o descargarlo y adjuntarlo allí.
                     </p>
                     <ol>
                       <li><span>1</span> Revisá las alertas y completá lo que conozcas.</li>

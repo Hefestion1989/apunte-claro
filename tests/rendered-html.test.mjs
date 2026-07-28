@@ -97,6 +97,7 @@ test("keeps summarization local and includes supported material readers", async 
   assert.match(page, /Copiar sólo la instrucción/);
   assert.match(page, /el paquete completo también incluye tu material/);
   assert.match(page, /El paquete completo une la instrucción de estudio con el texto extraído/);
+  assert.match(page, /\{" "\}o descargarlo y adjuntarlo allí/);
   assert.match(page, /Estudiar mejor debería estar al alcance de cualquiera/);
   assert.match(page, /resumen cuidadoso y metódico/);
   assert.match(page, /No te entrega una respuesta para repetir/);
