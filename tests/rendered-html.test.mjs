@@ -61,6 +61,9 @@ test("keeps summarization local and includes supported material readers", async 
   assert.match(page, /pdfjs-dist/);
   assert.match(page, /mammoth/);
   assert.match(page, /downloadExternalPackage/);
+  assert.match(page, /downloadExternalZip/);
+  assert.match(page, /analyzeExternalMaterial/);
+  assert.match(page, /buildExternalIntegrationPrompt/);
   assert.match(page, /buildPartialSummary/);
   assert.match(page, /Detener y conservar/);
   assert.match(page, /MAX_LOCAL_CHARS/);
@@ -84,12 +87,16 @@ test("keeps summarization local and includes supported material readers", async 
   assert.match(page, /https:\/\/gemini\.google\.com\//);
   assert.match(page, /https:\/\/claude\.ai\//);
   assert.match(page, /https:\/\/copilot\.microsoft\.com\//);
-  assert.match(page, /Descargar paquete \.txt/);
+  assert.match(page, /Descargar todo junto \(\.txt\)/);
+  assert.match(page, /Paquete académico/);
+  assert.match(page, /No encontramos evidencia sobre qué pide el docente/);
+  assert.doesNotMatch(page, /prepareExternalPackage/);
   assert.doesNotMatch(page, /\.slice\(0,\s*MAX_TOTAL_CHARS\)/);
   assert.doesNotMatch(page, /primeros 280\.000 caracteres/);
   assert.doesNotMatch(page, /OPENAI_API_KEY|GEMINI_API_KEY|fetch\(["']https:\/\/api\./);
   assert.match(layout, /og-study-method\.png/);
   assert.match(packageJson, /"next": "16\.2\.12"/);
+  assert.match(packageJson, /"jszip": "\^3\.10\.1"/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
 
   await assert.rejects(

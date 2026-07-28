@@ -2,7 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  analyzeExternalMaterial,
   buildExternalPackage,
+  buildExternalIntegrationPrompt,
+  buildExternalPartPackage,
   buildIntegrationSource,
   buildLocalSummaryPlan,
   buildPartialSummary,
@@ -478,6 +481,8 @@ export default function Home() {
   const [totalSections, setTotalSections] = useState(0);
   const [result, setResult] = useState("");
   const [resultMode, setResultMode] = useState<"summary" | "prompt">("summary");
+  const [isPackaging, setIsPackaging] = useState(false);
+  const [packageMessage, setPackageMessage] = useState("");
   const [useMode, setUseMode] = useState<UseMode | null>(null);
   const [externalProvider, setExternalProvider] = useState<ExternalProvider | null>(null);
   const [showModeChooser, setShowModeChooser] = useState(true);
@@ -559,6 +564,14 @@ export default function Home() {
       ),
     [config, materials],
   );
+  const externalMaterialAnalysis = useMemo(
+    () => analyzeExternalMaterial(combinedText),
+    [combinedText],
+  );
+  const externalPackagePlan = useMemo(
+    () => ({ ...externalMaterialAnalysis, topicMissing: !config.topic.trim() }),
+    [config.topic, externalMaterialAnalysis],
+  );
   const selectedProvider = externalProvider ? EXTERNAL_PROVIDERS[externalProvider] : null;
   const destinationName =
     useMode === "chatgpt" ? "ChatGPT" : selectedProvider?.name ?? "otra IA";
@@ -568,9 +581,13 @@ export default function Home() {
     if (!config.topic.trim()) items.push("Escribí el tema: ayuda a no mezclar conceptos cercanos.");
     if (materials.length > 1)
       items.push("Indicá autores o unidades si querés comparar sin mezclar atribuciones.");
-    if (localSummaryPlan.optimized)
+    if (useMode === "local" && localSummaryPlan.optimized)
       items.push(
         "Documento enorme: activaremos un modo local compacto para reducir el tiempo. Por capítulos sigue siendo más preciso.",
+      );
+    if (useMode && useMode !== "local" && externalPackagePlan.shouldSplit)
+      items.push(
+        `Material enorme: prepararemos ${externalPackagePlan.partCount} partes para no depender de un único contexto.`,
       );
     if (config.focus.length < 2)
       items.push("Elegí al menos dos focos, por ejemplo Conceptos + Relaciones.");
@@ -579,7 +596,14 @@ export default function Home() {
     if (!items.length)
       items.push("La configuración está completa. Después revisá el resultado contra el material.");
     return items.slice(0, 3);
-  }, [config, localSummaryPlan.optimized, materials.length]);
+  }, [
+    config,
+    externalPackagePlan.partCount,
+    externalPackagePlan.shouldSplit,
+    localSummaryPlan.optimized,
+    materials.length,
+    useMode,
+  ]);
 
   async function handleFiles(files: FileList | null) {
     if (!files?.length) return;
@@ -646,6 +670,7 @@ export default function Home() {
     setShowModeChooser(false);
     setError("");
     setProgressText("");
+    setPackageMessage("");
     window.setTimeout(() => document.querySelector("#crear")?.scrollIntoView({ behavior: "smooth" }), 120);
   }
 
@@ -657,6 +682,7 @@ export default function Home() {
     setChooserStep("mode");
     setError("");
     setProgressText("");
+    setPackageMessage("");
     window.setTimeout(() => document.querySelector("#crear")?.scrollIntoView({ behavior: "smooth" }), 120);
   }
 
@@ -684,27 +710,13 @@ export default function Home() {
     );
   }
 
-  function prepareExternalPackage() {
-    setError("");
-    setCopied(false);
-    setResultMode("prompt");
-    if (combinedText.length < 500) {
-      setError("Agregá al menos unas páginas de material o pegá un texto más extenso.");
-      return;
-    }
-    setProgressText(
-      useMode === "chatgpt"
-        ? "Paquete listo. Copiá la instrucción o descargá el material para abrirlo en ChatGPT."
-        : `Paquete listo. Copiá la instrucción o descargá el material para abrirlo en ${destinationName}.`,
-    );
-  }
-
   async function generateIntelligentSummary() {
     setError("");
     setCopied(false);
     setResultMode("summary");
     setResult("");
     setProgressText("");
+    setPackageMessage("");
     setProgressPercent(0);
     setElapsedSeconds(0);
     setAverageSectionSeconds(0);
@@ -1039,13 +1051,20 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
   function downloadResult() {
     if (!result) return;
     const blob = new Blob([result], { type: "text/markdown;charset=utf-8" });
+    triggerDownload(
+      blob,
+      `${(config.topic || "resumen-de-estudio")
+        .toLowerCase()
+        .replace(/[^a-z0-9áéíóúñ]+/gi, "-")
+        .replace(/^-|-$/g, "")}.md`,
+    );
+  }
+
+  function triggerDownload(blob: Blob, filename: string) {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `${(config.topic || "resumen-de-estudio")
-      .toLowerCase()
-      .replace(/[^a-z0-9áéíóúñ]+/gi, "-")
-      .replace(/^-|-$/g, "")}.md`;
+    anchor.download = filename;
     anchor.click();
     URL.revokeObjectURL(url);
   }
@@ -1058,15 +1077,71 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
     const destination = destinationName;
     const packageText = buildExternalPackage(destination, promptText, combinedText);
     const blob = new Blob([packageText], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `paquete-para-${destination
+    const slug = destination
       .toLowerCase()
       .replace(/[^a-z0-9áéíóúñ]+/gi, "-")
-      .replace(/^-|-$/g, "")}.txt`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+      .replace(/^-|-$/g, "");
+    triggerDownload(blob, `paquete-para-${slug}.txt`);
+    setPackageMessage(
+      `Paquete completo descargado: instrucción + ${externalPackagePlan.sourceCount} material(es) con ${externalPackagePlan.wordCount.toLocaleString("es-UY")} palabras.`,
+    );
+  }
+
+  async function downloadExternalZip() {
+    if (combinedText.length < 500) {
+      setError("Agregá material antes de descargar el paquete.");
+      return;
+    }
+    setError("");
+    setIsPackaging(true);
+    setPackageMessage("");
+    try {
+      const { default: JSZip } = await import("jszip");
+      const zip = new JSZip();
+      const parts = splitByStructure(combinedText, 120_000, 0);
+      const destination = destinationName;
+      const slug = destination
+        .toLowerCase()
+        .replace(/[^a-z0-9áéíóúñ]+/gi, "-")
+        .replace(/^-|-$/g, "");
+      const readme = `APUNTE CLARO · PAQUETE DIVIDIDO PARA ${destination.toUpperCase()}
+
+El material es demasiado extenso para depender de una única respuesta.
+
+1. Abrí ${destination}.
+2. Adjuntá y procesá las partes en orden, desde 01 hasta ${String(parts.length).padStart(2, "0")}.
+3. Guardá cada síntesis parcial.
+4. Al terminar, abrí 99-INTEGRAR-RESPUESTAS.txt y pegá allí todas las síntesis.
+5. Verificá nombres, autores, páginas, fechas y relaciones contra los archivos originales.
+
+Apunte Claro no envió ningún archivo automáticamente.
+`;
+      zip.file("00-COMO-USAR.txt", readme);
+      zip.file("00-INSTRUCCION-ACADEMICA.txt", promptText);
+      parts.forEach((part, index) => {
+        zip.file(
+          `${String(index + 1).padStart(2, "0")}-PARTE-DE-ESTUDIO.txt`,
+          buildExternalPartPackage(destination, promptText, part, index + 1, parts.length),
+        );
+      });
+      zip.file(
+        "99-INTEGRAR-RESPUESTAS.txt",
+        buildExternalIntegrationPrompt(destination, parts.length),
+      );
+      const blob = await zip.generateAsync({
+        type: "blob",
+        compression: "DEFLATE",
+        compressionOptions: { level: 6 },
+      });
+      triggerDownload(blob, `paquete-dividido-para-${slug}.zip`);
+      setPackageMessage(
+        `Paquete dividido descargado: ${parts.length} partes numeradas + instrucción de integración final.`,
+      );
+    } catch {
+      setError("No se pudo crear el ZIP. Podés descargar todo en un único archivo .txt.");
+    } finally {
+      setIsPackaging(false);
+    }
   }
 
   const engineCopy =
@@ -1443,9 +1518,13 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
               <div className="material-meter">
                 <span>{totalWords.toLocaleString("es-UY")} palabras listas</span>
                 <span>
-                  {estimatedSections
-                    ? `estimación inicial: ${estimatedSections} secciones`
-                    : "agregá material para comenzar"}
+                  {!combinedText
+                    ? "agregá material para comenzar"
+                    : useMode === "local"
+                      ? `estimación inicial: ${estimatedSections} secciones`
+                      : externalPackagePlan.shouldSplit
+                        ? `paquete recomendado: ${externalPackagePlan.partCount} partes`
+                        : "entra en un paquete completo"}
                 </span>
               </div>
             </section>
@@ -1635,17 +1714,86 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
               )}
 
               {useMode && useMode !== "local" && (
-                <div className="external-howto">
-                  <strong>Cómo usar el paquete</strong>
-                  <ol>
-                    <li><span>1</span> Agregá el material y completá el tema y el objetivo.</li>
-                    <li><span>2</span> Revisá la instrucción y descargá el paquete completo.</li>
-                    <li>
-                      <span>3</span> Abrí {destinationName}, adjuntá el archivo y enviá el pedido.
-                      Apunte Claro nunca lo hace por vos.
-                    </li>
-                  </ol>
-                </div>
+                <>
+                  <div className="package-readiness">
+                    <div className="package-readiness-heading">
+                      <div>
+                        <span>Paquete académico</span>
+                        <strong>
+                          {combinedText.length < 500
+                            ? "Agregá material para prepararlo"
+                            : `Listo para ${destinationName}`}
+                        </strong>
+                      </div>
+                      {combinedText.length >= 500 && (
+                        <span className="package-kind">
+                          {externalPackagePlan.shouldSplit
+                            ? `${externalPackagePlan.partCount} partes`
+                            : "Paquete único"}
+                        </span>
+                      )}
+                    </div>
+                    <div className="package-stats" aria-label="Contenido del paquete">
+                      <span>
+                        <strong>{externalPackagePlan.sourceCount}</strong>
+                        materiales
+                      </span>
+                      <span>
+                        <strong>{externalPackagePlan.pageCount || "—"}</strong>
+                        {externalPackagePlan.pageCount ? "páginas" : "sin páginas"}
+                      </span>
+                      <span>
+                        <strong>{externalPackagePlan.wordCount.toLocaleString("es-UY")}</strong>
+                        palabras
+                      </span>
+                    </div>
+                    {combinedText.length >= 500 && (
+                      <div className="package-checks">
+                        <p className={externalPackagePlan.topicMissing ? "is-warning" : "is-ready"}>
+                          <span>{externalPackagePlan.topicMissing ? "!" : "✓"}</span>
+                          {externalPackagePlan.topicMissing
+                            ? "Falta completar el tema: la IA tendrá que inferirlo y confirmarlo."
+                            : `Tema declarado: ${config.topic}.`}
+                        </p>
+                        <p className={externalPackagePlan.assessmentEvidence ? "is-ready" : "is-neutral"}>
+                          <span>{externalPackagePlan.assessmentEvidence ? "✓" : "i"}</span>
+                          {externalPackagePlan.assessmentEvidence
+                            ? "Encontramos posible evidencia de programa, guía o examen para orientar qué podría evaluarse."
+                            : "No encontramos evidencia sobre qué pide el docente; el paquete le prohíbe a la IA inventarlo."}
+                        </p>
+                        <p className={externalPackagePlan.pageCount ? "is-ready" : "is-neutral"}>
+                          <span>{externalPackagePlan.pageCount ? "✓" : "i"}</span>
+                          {externalPackagePlan.pageCount
+                            ? "Las referencias de página quedan dentro del material para poder verificar."
+                            : "El material no tiene páginas detectables; se conservarán fuentes y secciones."}
+                        </p>
+                        {externalPackagePlan.shouldSplit && (
+                          <p className="is-ready">
+                            <span>✓</span>
+                            Es un material enorme: el ZIP incluirá partes numeradas y una instrucción de integración final.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="external-howto">
+                    <strong>Cómo usar el paquete</strong>
+                    <ol>
+                      <li><span>1</span> Revisá las alertas y completá lo que conozcas.</li>
+                      <li>
+                        <span>2</span>
+                        {externalPackagePlan.shouldSplit
+                          ? ` Descargá el ZIP y procesá sus ${externalPackagePlan.partCount} partes en orden.`
+                          : " Descargá el archivo que contiene la instrucción y todo el material."}
+                      </li>
+                      <li>
+                        <span>3</span> Abrí {destinationName}, adjuntá el paquete y enviá el pedido.
+                        Apunte Claro nunca lo hace por vos.
+                      </li>
+                    </ol>
+                  </div>
+                </>
               )}
 
               {useMode === "local" && resultMode === "summary" ? (
@@ -1667,12 +1815,15 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
                   </div>
                 )
               ) : (
-                <article className="result-output prompt-output">
-                  <pre>{promptText}</pre>
-                </article>
+                <div className="prompt-preview">
+                  <span>Instrucción académica incluida en el paquete</span>
+                  <article className="result-output prompt-output">
+                    <pre>{promptText}</pre>
+                  </article>
+                </div>
               )}
 
-              {progressText && (
+              {progressText && useMode === "local" && (
                 <div className="progress-block" aria-live="polite">
                   <div className="progress-message">
                     <span className={isGenerating ? "spinner" : "done-dot"} />
@@ -1709,21 +1860,40 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
                   )}
                 </div>
               )}
+              {packageMessage && useMode && useMode !== "local" && (
+                <div className="package-success" role="status">
+                  <span>✓</span>
+                  {packageMessage}
+                </div>
+              )}
               {error && <div className="error-message" role="alert">{error}</div>}
 
               <div className="result-actions">
                 <button
                   type="button"
                   className="primary-button generate-button"
-                  disabled={isGenerating || isReading}
-                  onClick={useMode === "local" ? generateIntelligentSummary : prepareExternalPackage}
+                  disabled={
+                    isGenerating ||
+                    isReading ||
+                    isPackaging ||
+                    (useMode !== "local" && combinedText.length < 500)
+                  }
+                  onClick={
+                    useMode === "local"
+                      ? generateIntelligentSummary
+                      : externalPackagePlan.shouldSplit
+                        ? downloadExternalZip
+                        : downloadExternalPackage
+                  }
                 >
                   {isGenerating
                     ? "Trabajando por secciones…"
-                    : useMode === "chatgpt"
-                      ? "Preparar para ChatGPT"
-                      : useMode === "other"
-                        ? `Preparar para ${destinationName}`
+                    : isPackaging
+                      ? "Armando el paquete…"
+                      : useMode && useMode !== "local"
+                        ? externalPackagePlan.shouldSplit
+                          ? `Descargar ${externalPackagePlan.partCount} partes (.zip)`
+                          : `Descargar paquete para ${destinationName}`
                         : "Probar generación local"}
                 </button>
                 {isGenerating && useMode === "local" && (
@@ -1752,14 +1922,14 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
                     Descargar .md
                   </button>
                 )}
-                {useMode && useMode !== "local" && (
+                {useMode && useMode !== "local" && externalPackagePlan.shouldSplit && (
                   <button
                     type="button"
                     className="secondary-button"
                     disabled={combinedText.length < 500}
                     onClick={downloadExternalPackage}
                   >
-                    Descargar paquete .txt
+                    Descargar todo junto (.txt)
                   </button>
                 )}
                 {(useMode === "chatgpt" || selectedProvider?.url) && (

@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  analyzeExternalMaterial,
   buildExternalPackage,
+  buildExternalIntegrationPrompt,
+  buildExternalPartPackage,
   buildIntegrationSource,
   buildLocalSummaryPlan,
   buildPartialSummary,
@@ -43,6 +46,43 @@ test("keeps the full long document in packages for external tools", () => {
   assert.ok(packageText.length > 280_000);
   assert.match(packageText, /SECCION_001/);
   assert.match(packageText, /MARCADOR_SECCION_060/);
+});
+
+test("audits external material before packaging it", () => {
+  const material = `===== FUENTE: Guía de parcial.pdf =====
+
+[Página 1]
+Consignas de parcial sobre autores y conceptos.
+
+[Página 2]
+Comparar las teorías principales.`;
+  const plan = analyzeExternalMaterial(material);
+
+  assert.equal(plan.sourceCount, 1);
+  assert.equal(plan.pageCount, 2);
+  assert.equal(plan.assessmentEvidence, true);
+  assert.equal(plan.shouldSplit, false);
+});
+
+test("plans numbered external parts and a final integration instruction", () => {
+  const largeMaterial = `===== TEXTO PEGADO =====\n\n${"Concepto relacionado con un autor. ".repeat(35_000)}`;
+  const plan = analyzeExternalMaterial(largeMaterial);
+  const firstPart = buildExternalPartPackage(
+    "Gemini",
+    "Resumí con precisión.",
+    "Fragmento académico.",
+    1,
+    plan.partCount,
+  );
+  const integration = buildExternalIntegrationPrompt("Gemini", plan.partCount);
+
+  assert.equal(plan.sourceCount, 1);
+  assert.equal(plan.shouldSplit, true);
+  assert.ok(plan.partCount > 1);
+  assert.match(firstPart, /parte 1 de \d+/);
+  assert.match(firstPart, /No presentes todavía una conclusión general/);
+  assert.match(integration, /Integración final para Gemini/);
+  assert.match(integration, /No agregues conocimiento externo/);
 });
 
 test("publishes a readable partial draft after every completed section", async () => {

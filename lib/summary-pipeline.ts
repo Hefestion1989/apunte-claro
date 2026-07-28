@@ -265,3 +265,76 @@ ${prompt}
 ${material}
 `;
 }
+
+export function analyzeExternalMaterial(material: string) {
+  const sourceNames = [
+    ...material.matchAll(/===== FUENTE:\s*(.+?)\s*=====/gi),
+  ].map((match) => match[1].trim());
+  const hasPastedText = /===== TEXTO PEGADO =====/i.test(material);
+  const pages = [...material.matchAll(/\[Página\s+(\d+)\]/gi)];
+  const words = material.trim() ? material.trim().split(/\s+/).length : 0;
+  const parts = splitByStructure(material, 120_000, 0);
+  const assessmentEvidence =
+    sourceNames.some((name) =>
+      /\b(?:examen|parcial|programa|gu[ií]a|consigna|evaluaci[oó]n)\b/i.test(name),
+    ) ||
+    /\b(?:preguntas? de (?:examen|parcial)|consignas? de (?:examen|parcial)|programa de la materia|criterios? de evaluaci[oó]n)\b/i.test(
+      material,
+    );
+
+  return {
+    sourceNames,
+    sourceCount: sourceNames.length + (hasPastedText ? 1 : 0),
+    pageCount: pages.length,
+    wordCount: words,
+    partCount: Math.max(1, parts.length),
+    shouldSplit: material.length > 180_000 || words > 30_000,
+    assessmentEvidence,
+  };
+}
+
+export function buildExternalPartPackage(
+  destination: string,
+  prompt: string,
+  material: string,
+  partNumber: number,
+  totalParts: number,
+) {
+  return `# Paquete de estudio para ${destination} · parte ${partNumber} de ${totalParts}
+
+## Cómo trabajar esta parte
+
+- Aplicá la instrucción académica al material incluido debajo.
+- Prepará una síntesis parcial y conservá autores, conceptos, fuentes y páginas.
+- No presentes todavía una conclusión general del curso.
+- Guardá la respuesta: al terminar todas las partes se integrarán sin mezclar atribuciones.
+
+## Instrucción académica
+
+${prompt}
+
+---
+
+## Material de esta parte
+
+${material}
+`;
+}
+
+export function buildExternalIntegrationPrompt(destination: string, totalParts: number) {
+  return `# Integración final para ${destination}
+
+Ya se procesaron ${totalParts} partes del material por separado. Pegá debajo las síntesis parciales y elaborá una guía de estudio final.
+
+REQUISITOS
+- Integrá conceptos y relaciones sin borrar diferencias entre autores o fuentes.
+- Eliminá repeticiones, pero conservá excepciones, críticas y contradicciones.
+- Mantené las referencias de archivo, página o sección presentes en las síntesis.
+- No agregues conocimiento externo.
+- Si dos síntesis se contradicen, marcá [Requiere revisión] y explicá la diferencia.
+- Cerrá con conceptos clave, relaciones importantes, datos a memorizar y 5 preguntas de autoevaluación.
+
+SÍNTESIS PARCIALES
+[Pegá aquí las respuestas obtenidas para las ${totalParts} partes]
+`;
+}
