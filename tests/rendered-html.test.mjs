@@ -30,17 +30,17 @@ test("server-renders the finished Apunte Claro page", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>Apunte Claro · Resúmenes inteligentes para estudiar<\/title>/i);
-  assert.match(html, /De textos enormes a un/);
-  assert.match(html, /Generar resumen inteligente/);
-  assert.match(html, /Sin cuenta/);
-  assert.match(html, /Sin API/);
-  assert.match(html, /Elegí cómo querés resumir/);
-  assert.match(html, /IA local · sin cuenta/);
-  assert.match(html, /Usar ChatGPT/);
-  assert.match(html, /Elegir otra IA/);
-  assert.match(html, /Gemini, Copilot, Claude u otra/);
-  assert.match(html, /No necesitás entender de IA/);
-  assert.match(html, /Apunte Claro no pide cuenta ni envía nada por su cuenta/);
+  assert.match(html, /Pedile un resumen que sirva para estudiar/);
+  assert.match(html, /Preparar mi resumen/);
+  assert.match(html, /Sin cuenta en Apunte Claro/);
+  assert.match(html, /Elegís la IA/);
+  assert.match(html, /¿Cómo querés preparar tu resumen\?/);
+  assert.match(html, /Preparar con otra IA/);
+  assert.match(html, /Generar en mi computadora/);
+  assert.match(html, /Aprender el método/);
+  assert.match(html, /Mejor para textos extensos/);
+  assert.match(html, /Apunte Claro no pide cuenta ni envía tus archivos/);
+  assert.match(html, /Cuatro controles antes de estudiar el resumen/);
   assert.match(html, /https:\/\/www\.educalive\.com\/blog\/como-hacer-resumen/);
   assert.match(html, /https:\/\/help\.openai\.com\/en\/articles\/9125172-the-chatgpt-home-page/);
   assert.doesNotMatch(html, /codex-preview|SkeletonPreview|react-loading-skeleton/);
@@ -88,7 +88,7 @@ test("keeps summarization local and includes supported material readers", async 
   assert.doesNotMatch(page, /\.slice\(0,\s*MAX_TOTAL_CHARS\)/);
   assert.doesNotMatch(page, /primeros 280\.000 caracteres/);
   assert.doesNotMatch(page, /OPENAI_API_KEY|GEMINI_API_KEY|fetch\(["']https:\/\/api\./);
-  assert.match(layout, /og\.png/);
+  assert.match(layout, /og-study-method\.png/);
   assert.match(packageJson, /"next": "16\.2\.12"/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
 

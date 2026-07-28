@@ -8,10 +8,10 @@ export async function generateMetadata(): Promise<Metadata> {
   const protocol = host.startsWith("localhost") || host.startsWith("127.0.0.1")
     ? "http"
     : "https";
-  const imageUrl = `${protocol}://${host}/og.png`;
+  const imageUrl = `${protocol}://${host}/og-study-method.png`;
   const title = "Apunte Claro · Resúmenes inteligentes para estudiar";
   const description =
-    "Convertí apuntes y textos universitarios en resúmenes de estudio con IA local, sin cuenta ni API.";
+    "Organizá materiales universitarios y prepará un pedido académico preciso para la IA que prefieras.";
 
   return {
     title,

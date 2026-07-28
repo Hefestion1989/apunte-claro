@@ -297,6 +297,7 @@ MÉTODO
 5. Usá solo el material. No inventes ni completes por conocimiento general.
 6. Si algo es ambiguo, contradictorio o ilegible, marcá [Requiere revisión].
 7. Si hay varias fuentes, señalá coincidencias y diferencias sin atribuir una idea al autor equivocado.
+8. Si el material incluye programa, guía, consignas o exámenes anteriores, identificá qué parece evaluar el curso y citá de dónde surge. Si no existe esa evidencia, decí explícitamente que no se puede saber qué pedirá el docente.
 
 SALIDA
 - Ficha del tema
@@ -304,6 +305,7 @@ SALIDA
 - Resumen organizado por secciones
 - Conceptos clave explicados
 - Relaciones importantes y comparaciones
+- Qué podría evaluarse, únicamente cuando haya evidencia en el material
 - Datos que conviene memorizar
 - Dudas o límites del material
 - Síntesis final de 3 a 5 líneas
@@ -573,7 +575,7 @@ export default function Home() {
     if (config.focus.length < 2)
       items.push("Elegí al menos dos focos, por ejemplo Conceptos + Relaciones.");
     if (!config.notes.trim())
-      items.push("Podés aclarar qué te cuesta o qué suele tomar el docente.");
+      items.push("Contá qué te cuesta o qué suele evaluar el docente, si lo sabés.");
     if (!items.length)
       items.push("La configuración está completa. Después revisá el resultado contra el material.");
     return items.slice(0, 3);
@@ -671,6 +673,15 @@ export default function Home() {
   function closeFreeInfo() {
     setChooserStep("mode");
     setShowModeChooser(false);
+  }
+
+  function openMethodGuide() {
+    setChooserStep("mode");
+    setShowModeChooser(false);
+    window.setTimeout(
+      () => document.querySelector("#metodo")?.scrollIntoView({ behavior: "smooth" }),
+      120,
+    );
   }
 
   function prepareExternalPackage() {
@@ -1092,48 +1103,53 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
               <>
                 <div className="mode-dialog-heading">
                   <span className="mode-brand"><span className="brand-mark">A</span> Apunte Claro</span>
-                  <span className="mode-kicker">Gratis · sin cuenta para entrar</span>
-                  <h2 id="mode-title">Elegí cómo querés resumir</h2>
+                  <span className="mode-kicker">Gratis · sin cuenta en Apunte Claro</span>
+                  <h2 id="mode-title">¿Cómo querés preparar tu resumen?</h2>
                   <p id="mode-description">
-                    No necesitás entender de IA. Elegí una opción y Apunte Claro te va guiando.
+                    Organizamos el material y el pedido académico. Después vos elegís dónde procesarlo.
                   </p>
                 </div>
 
                 <div className="mode-options">
+                  <button
+                    type="button"
+                    className="mode-option mode-option-recommended"
+                    onClick={() => setChooserStep("provider")}
+                  >
+                    <span className="mode-badge">Recomendado</span>
+                    <span className="mode-icon" aria-hidden="true">✦</span>
+                    <span className="mode-option-copy">
+                      <strong>Preparar con otra IA</strong>
+                      <small>Mejor para textos extensos</small>
+                      <span>Elegí ChatGPT, Gemini, Copilot, Claude u otra. Te damos el pedido y el material listos.</span>
+                    </span>
+                    <span className="mode-arrow" aria-hidden="true">→</span>
+                  </button>
+
                   <button type="button" className="mode-option mode-option-local" onClick={() => chooseMode("local")}>
                     <span className="mode-icon" aria-hidden="true">⌁</span>
                     <span className="mode-option-copy">
-                      <strong>Hacerlo acá</strong>
-                      <small>IA local · sin cuenta</small>
-                      <span>La opción más privada. Resume en Chrome y tus apuntes no salen del dispositivo.</span>
+                      <strong>Generar en mi computadora</strong>
+                      <small>Más privado · bastante más lento</small>
+                      <span>Usa la IA local de Chrome. Es opcional y puede tardar con materiales grandes.</span>
                     </span>
                     <span className="mode-arrow" aria-hidden="true">→</span>
                   </button>
 
-                  <button type="button" className="mode-option" onClick={() => chooseMode("chatgpt")}>
-                    <span className="mode-icon" aria-hidden="true">✦</span>
+                  <button type="button" className="mode-option" onClick={openMethodGuide}>
+                    <span className="mode-icon" aria-hidden="true">?</span>
                     <span className="mode-option-copy">
-                      <strong>Usar ChatGPT</strong>
-                      <small>Puede funcionar sin cuenta</small>
-                      <span>Preparamos todo. Después sólo copiás o adjuntás el archivo en ChatGPT.</span>
-                    </span>
-                    <span className="mode-arrow" aria-hidden="true">→</span>
-                  </button>
-
-                  <button type="button" className="mode-option" onClick={() => chooseMode("other")}>
-                    <span className="mode-icon" aria-hidden="true">◇</span>
-                    <span className="mode-option-copy">
-                      <strong>Elegir otra IA</strong>
-                      <small>Gemini, Copilot, Claude u otra</small>
-                      <span>Primero elegís cuál. Después te mostramos exactamente qué hacer.</span>
+                      <strong>Aprender el método</strong>
+                      <small>Qué hace bueno a un resumen</small>
+                      <span>Leé cómo seleccionar, conectar y revisar ideas antes de usar cualquier IA.</span>
                     </span>
                     <span className="mode-arrow" aria-hidden="true">→</span>
                   </button>
                 </div>
 
                 <p className="mode-privacy">
-                  Apunte Claro no pide cuenta ni envía nada por su cuenta. Si una plataforma externa
-                  te solicita acceso, siempre podés volver y elegir IA local.
+                  Apunte Claro no pide cuenta ni envía tus archivos. La herramienta externa puede
+                  solicitar registro y aplica sus propias condiciones.
                 </p>
                 <div className="mode-links">
                   <a href="https://www.educalive.com/blog/como-hacer-resumen" target="_blank" rel="noreferrer">
@@ -1150,14 +1166,26 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
                   ← Volver
                 </button>
                 <div className="mode-dialog-heading">
-                  <span className="mode-kicker">Un toque más</span>
-                  <h2 id="mode-title">¿Cuál querés usar?</h2>
+                  <span className="mode-kicker">Camino recomendado</span>
+                  <h2 id="mode-title">Elegí la IA que prefieras</h2>
                   <p id="mode-description">
-                    Elegí por nombre. No hace falta configurar claves ni conectar cuentas con Apunte Claro.
+                    No conectamos cuentas ni pedimos claves. Preparamos un archivo para que vos lo lleves.
                   </p>
                 </div>
 
                 <div className="mode-options provider-options">
+                  <button
+                    type="button"
+                    className="mode-option provider-option"
+                    onClick={() => chooseMode("chatgpt")}
+                  >
+                    <span className="mode-icon provider-icon" aria-hidden="true">✦</span>
+                    <span className="mode-option-copy">
+                      <strong>ChatGPT</strong>
+                      <span>Prepará un paquete académico y abrilo después en ChatGPT.</span>
+                    </span>
+                    <span className="mode-arrow" aria-hidden="true">→</span>
+                  </button>
                   {(Object.entries(EXTERNAL_PROVIDERS) as [
                     ExternalProvider,
                     (typeof EXTERNAL_PROVIDERS)[ExternalProvider],
@@ -1193,45 +1221,42 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
                   <span className="mode-kicker">Cómo funciona de verdad</span>
                   <h2 id="mode-title">¿Por qué puede ser gratis?</h2>
                   <p id="mode-description">
-                    Porque en el modo local no alquilamos una IA por cada resumen: usamos la
-                    inteligencia artificial que Chrome puede ejecutar en tu propia computadora.
+                    Porque Apunte Claro organiza el material y construye el pedido en tu navegador.
+                    No cobra por una IA propia ni envía archivos a un servidor.
                   </p>
                 </div>
 
                 <div className="about-grid">
                   <article>
                     <span className="about-number">01</span>
-                    <h3>El modelo es Gemini Nano</h3>
+                    <h3>Prepara, no encierra</h3>
                     <p>
-                      Apunte Claro utiliza la API Summarizer integrada en Chrome. Actualmente esa
-                      función trabaja con Gemini Nano, un modelo pequeño administrado y actualizado
-                      por el navegador.
+                      Convierte tus opciones de estudio en una instrucción precisa y agrega el
+                      material completo para usarlo en la herramienta que elijas.
                     </p>
                   </article>
                   <article>
                     <span className="about-number">02</span>
-                    <h3>No hay una API paga</h3>
+                    <h3>Vos elegís la IA</h3>
                     <p>
-                      En modo local no necesitás clave, crédito ni cuenta. El modelo se descarga la
-                      primera vez y después procesa el texto en el equipo. Por eso puede tardar más.
+                      ChatGPT, Gemini, Claude, Copilot u otra plataforma procesan el paquete sólo
+                      cuando vos decidís copiarlo o adjuntarlo.
                     </p>
                   </article>
                   <article>
                     <span className="about-number">03</span>
-                    <h3>Tus apuntes quedan en el dispositivo</h3>
+                    <h3>Nada se envía solo</h3>
                     <p>
-                      Apunte Claro no sube los archivos a un servidor de IA. Si elegís ChatGPT,
-                      Gemini, Claude o Copilot, recién compartís el material cuando vos lo copiás o
-                      adjuntás allí.
+                      La lectura y preparación ocurren en tu navegador. Cada plataforma externa
+                      tiene sus propias cuentas, límites y políticas de privacidad.
                     </p>
                   </article>
                   <article>
                     <span className="about-number">04</span>
-                    <h3>También tiene límites</h3>
+                    <h3>La opción local sigue disponible</h3>
                     <p>
-                      Requiere Chrome actualizado y una computadora compatible. El modelo local
-                      puede equivocarse, tiene menos contexto que una IA de servidor y no reemplaza
-                      la revisión del material original.
+                      Chrome puede usar Gemini Nano en equipos compatibles. Es la alternativa más
+                      privada, aunque puede tardar bastante y tiene menos contexto.
                     </p>
                   </article>
                 </div>
@@ -1270,7 +1295,7 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
         </a>
         <div className="nav-links">
           <a href="#crear">Crear resumen</a>
-          <a href="#metodo">Cómo funciona</a>
+          <a href="#metodo">Método y revisión</a>
           <button type="button" className="mode-switch" onClick={openModeChooser}>
             {useMode === "chatgpt"
               ? "Modo: ChatGPT"
@@ -1287,27 +1312,27 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
 
       <section className="hero" id="inicio">
         <div className="hero-copy">
-          <span className="eyebrow">Hecho para estudiar, no para recortar texto</span>
+          <span className="eyebrow">Un método de estudio para usar con la IA que prefieras</span>
           <h1>
-            De textos enormes a un
-            <span> resumen que entiende el tema.</span>
+            No le pidas a una IA “resumime esto”.
+            <span> Pedile un resumen que sirva para estudiar.</span>
           </h1>
           <p>
-            Subí capítulos, apuntes o varios materiales. La IA trabaja en tu computadora,
-            reconoce conceptos y relaciones, y arma una guía según lo que necesitás aprender.
+            Apunte Claro organiza tus materiales, tu objetivo y lo que necesitás aprender.
+            Después prepara un paquete preciso para ChatGPT, Gemini, Claude, Copilot u otra IA.
           </p>
           <div className="hero-actions">
             <a className="primary-button" href="#crear">
-              Crear mi resumen <span aria-hidden="true">→</span>
+              Preparar mi resumen <span aria-hidden="true">→</span>
             </a>
             <button type="button" className="text-link" onClick={openFreeInfo}>
               ¿Por qué es gratuito?
             </button>
           </div>
           <div className="trust-row">
-            <span><AppIcon>✓</AppIcon> Sin cuenta</span>
-            <span><AppIcon>✓</AppIcon> Sin API</span>
-            <span><AppIcon>✓</AppIcon> Archivos en tu dispositivo</span>
+            <span><AppIcon>✓</AppIcon> Sin cuenta en Apunte Claro</span>
+            <span><AppIcon>✓</AppIcon> Elegís la IA</span>
+            <span><AppIcon>✓</AppIcon> Nada se envía solo</span>
           </div>
         </div>
         <div className="hero-visual" aria-label="Proceso de resumen inteligente">
@@ -1339,8 +1364,8 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
       <section className="creator-shell" id="crear">
         <div className="section-heading">
           <span className="step-kicker">Tu mesa de estudio</span>
-          <h2>Armá el resumen en tres pasos</h2>
-          <p>Podés combinar archivos y texto pegado. Nada se guarda en una cuenta.</p>
+          <h2>Prepará un buen resumen en tres pasos</h2>
+          <p>Combiná materiales, definí qué necesitás y llevate un paquete listo para la IA elegida.</p>
         </div>
 
         <div className="creator-grid">
@@ -1546,13 +1571,13 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
               </div>
 
               <label>
-                <span className="field-label">Algo que te cuesta o querés priorizar</span>
+                <span className="field-label">Qué te cuesta o qué suele evaluar el docente</span>
                 <textarea
                   value={config.notes}
                   onChange={(event) =>
                     setConfig((current) => ({ ...current, notes: event.target.value }))
                   }
-                  placeholder="Ej. Me confundo entre condicionamiento clásico y operante. Comparalos con ejemplos."
+                  placeholder="Ej. Me confundo entre dos autores. En los parciales suelen pedir comparaciones y ejemplos."
                   rows={3}
                 />
               </label>
@@ -1571,34 +1596,31 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
               <div className="card-heading result-heading">
                 <span className="step-number">3</span>
                 <div>
-                  <h3>Generá y revisá</h3>
+                  <h3>
+                    {useMode === "local"
+                      ? "Generá en tu computadora"
+                      : `Prepará para ${destinationName}`}
+                  </h3>
                   <p>
                     {useMode === "local"
-                      ? "La IA propone; vos confirmás que sirva para estudiar."
-                      : "Preparamos el pedido; vos decidís dónde y qué compartir."}
+                      ? "Alternativa privada: funciona en Chrome, pero puede tardar."
+                      : "Armamos el pedido; vos decidís cuándo y dónde compartirlo."}
                   </p>
                 </div>
               </div>
 
               {useMode === "local" ? (
-                <div className="result-tabs" role="tablist" aria-label="Tipo de resultado">
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={resultMode === "summary"}
-                    className={resultMode === "summary" ? "is-active" : ""}
-                    onClick={() => setResultMode("summary")}
-                  >
-                    Resumen
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={resultMode === "prompt"}
-                    className={resultMode === "prompt" ? "is-active" : ""}
-                    onClick={() => setResultMode("prompt")}
-                  >
-                    Instrucción para otra IA
+                <div className="selected-mode-banner local-alternative">
+                  <span aria-hidden="true">⌁</span>
+                  <div>
+                    <strong>Generación local opcional</strong>
+                    <small>Más privada, pero puede ser muy lenta con documentos grandes.</small>
+                  </div>
+                  <button type="button" onClick={() => {
+                    setChooserStep("provider");
+                    setShowModeChooser(true);
+                  }}>
+                    Usar otra IA
                   </button>
                 </div>
               ) : (
@@ -1614,13 +1636,13 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
 
               {useMode && useMode !== "local" && (
                 <div className="external-howto">
-                  <strong>Qué vas a hacer</strong>
+                  <strong>Cómo usar el paquete</strong>
                   <ol>
-                    <li><span>1</span> Agregá tus apuntes y elegí cómo querés estudiar.</li>
-                    <li><span>2</span> Presioná “Preparar para {destinationName}”.</li>
+                    <li><span>1</span> Agregá el material y completá el tema y el objetivo.</li>
+                    <li><span>2</span> Revisá la instrucción y descargá el paquete completo.</li>
                     <li>
-                      <span>3</span> Descargá el paquete, abrí {destinationName} y adjuntá el archivo.
-                      Si no permite adjuntarlo, copiá la instrucción.
+                      <span>3</span> Abrí {destinationName}, adjuntá el archivo y enviá el pedido.
+                      Apunte Claro nunca lo hace por vos.
                     </li>
                   </ol>
                 </div>
@@ -1702,7 +1724,7 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
                       ? "Preparar para ChatGPT"
                       : useMode === "other"
                         ? `Preparar para ${destinationName}`
-                        : "Generar resumen inteligente"}
+                        : "Probar generación local"}
                 </button>
                 {isGenerating && useMode === "local" && (
                   <button
@@ -1769,8 +1791,8 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
       <section className="method-section" id="metodo">
         <div className="section-heading method-heading">
           <span className="step-kicker">Un método, no un atajo</span>
-          <h2>La IA acompaña el trabajo de comprender</h2>
-          <p>El flujo adapta principios clásicos del resumen a materiales universitarios y herramientas de IA.</p>
+          <h2>La calidad no depende solamente de la IA</h2>
+          <p>Apunte Claro convierte criterios de estudio en un pedido preciso y una revisión verificable.</p>
         </div>
         <div className="method-grid">
           {[
@@ -1803,23 +1825,52 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
             Ver artículo de EducAlive ↗
           </a>
         </div>
+
+        <div className="quality-panel">
+          <div className="quality-heading">
+            <span className="step-kicker">Después de recibirlo</span>
+            <h3>Cuatro controles antes de estudiar el resumen</h3>
+            <p>Una respuesta prolija puede ser incorrecta. Revisala con estas preguntas.</p>
+          </div>
+          <div className="quality-grid">
+            <article>
+              <strong>01 · Atribuciones</strong>
+              <p>¿Cada concepto está asociado al autor que realmente lo propone?</p>
+            </article>
+            <article>
+              <strong>02 · Relaciones</strong>
+              <p>¿Explica por qué las ideas se conectan o sólo las enumera?</p>
+            </article>
+            <article>
+              <strong>03 · Evidencia</strong>
+              <p>¿Podés volver a la página o sección original para verificarlo?</p>
+            </article>
+            <article>
+              <strong>04 · Utilidad</strong>
+              <p>¿Podés explicarlo con tus palabras y responder preguntas sin mirar?</p>
+            </article>
+          </div>
+          <p className="quality-warning">
+            Si no sabés qué “pide el docente”, agregá el programa, una guía o exámenes anteriores.
+            La IA puede detectar temas importantes, pero no adivinar criterios que no aparecen en el material.
+          </p>
+        </div>
       </section>
 
       <section className="privacy-section" id="privacidad">
         <div className="privacy-copy">
-          <span className="step-kicker">Gratis de verdad</span>
-          <h2>No necesita cuenta, clave ni servidor de IA.</h2>
+          <span className="step-kicker">Control en manos del estudiante</span>
+          <h2>Apunte Claro no necesita cuenta y nunca envía tus archivos solo.</h2>
           <p>
-            En Chrome actualizado para computadora, Gemini Nano se ejecuta en el propio
-            dispositivo mediante la API Summarizer del navegador. El sitio no recibe el contenido
-            de los apuntes. La descarga inicial puede ser grande y requiere un equipo compatible;
-            por eso siempre queda disponible la instrucción para otra IA.
+            La preparación se realiza en el navegador. Si elegís una IA externa, compartís el
+            paquete recién cuando vos lo adjuntás allí y se aplican las condiciones de esa plataforma.
+            También podés probar Gemini Nano local en Chrome compatible: es más privado, pero más lento.
           </p>
         </div>
         <div className="privacy-facts">
-          <div><strong>Local</strong><span>el texto se procesa en tu equipo</span></div>
-          <div><strong>Sin registro</strong><span>no hay perfiles ni historial en la nube</span></div>
-          <div><strong>Honesto</strong><span>la IA puede equivocarse: el control final es humano</span></div>
+          <div><strong>Sin registro propio</strong><span>Apunte Claro no crea perfiles</span></div>
+          <div><strong>Elección clara</strong><span>vos decidís qué IA utilizar</span></div>
+          <div><strong>Revisión humana</strong><span>la respuesta siempre debe verificarse</span></div>
         </div>
       </section>
 
