@@ -4,7 +4,8 @@ export type SupportedMaterialExtension = "pdf" | "docx" | "txt" | "md" | "csv" |
 
 export function cleanMaterialText(text: string) {
   return text
-    .replace(/\u0000/g, "")
+    .split("\u0000")
+    .join("")
     .replace(/Encuentre más documentos universitarios en https?:\/\/apunty\.com/gi, "")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{4,}/g, "\n\n\n")
