@@ -35,10 +35,10 @@ test("server-renders the finished Apunte Claro page", async () => {
   assert.match(html, /Sin cuenta en Apunte Claro/);
   assert.match(html, /Elegís la IA/);
   assert.match(html, /¿Cómo querés preparar tu resumen\?/);
-  assert.match(html, /Preparar con otra IA/);
+  assert.match(html, /Empezar con ChatGPT/);
+  assert.match(html, /Elegir otra IA/);
   assert.match(html, /Generar en mi computadora/);
   assert.match(html, /Aprender el método/);
-  assert.match(html, /Mejor para textos extensos/);
   assert.match(html, /Apunte Claro no pide cuenta ni envía tus archivos/);
   assert.match(html, /Cuatro controles antes de estudiar el resumen/);
   assert.match(html, /https:\/\/www\.educalive\.com\/blog\/como-hacer-resumen/);

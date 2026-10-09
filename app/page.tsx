@@ -442,6 +442,11 @@ export default function Home() {
   const [resultMode, setResultMode] = useState<"summary" | "prompt">("summary");
   const [isPackaging, setIsPackaging] = useState(false);
   const [packageMessage, setPackageMessage] = useState("");
+  const [packageSnapshot, setPackageSnapshot] = useState<{
+    material: string;
+    prompt: string;
+    destination: string;
+  } | null>(null);
   const [useMode, setUseMode] = useState<UseMode | null>(null);
   const [externalProvider, setExternalProvider] = useState<ExternalProvider | null>(null);
   const [showModeChooser, setShowModeChooser] = useState(true);
@@ -536,6 +541,10 @@ export default function Home() {
   const selectedProvider = externalProvider ? EXTERNAL_PROVIDERS[externalProvider] : null;
   const destinationName =
     useMode === "chatgpt" ? "ChatGPT" : selectedProvider?.name ?? "otra IA";
+  const packageSnapshotIsCurrent =
+    packageSnapshot?.material === combinedText &&
+    packageSnapshot.prompt === promptText &&
+    packageSnapshot.destination === destinationName;
 
   const suggestions = useMemo(() => {
     const items: string[] = [];
@@ -635,6 +644,7 @@ export default function Home() {
     setError("");
     setProgressText("");
     setPackageMessage("");
+    setPackageSnapshot(null);
     setCopiedPackage(false);
     window.setTimeout(() => document.querySelector("#crear")?.scrollIntoView({ behavior: "smooth" }), 120);
   }
@@ -648,6 +658,7 @@ export default function Home() {
     setError("");
     setProgressText("");
     setPackageMessage("");
+    setPackageSnapshot(null);
     setCopiedPackage(false);
     window.setTimeout(() => document.querySelector("#crear")?.scrollIntoView({ behavior: "smooth" }), 120);
   }
@@ -1009,24 +1020,44 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
   async function copyCurrent() {
     const text = resultMode === "summary" ? result : promptText;
     if (!text) return;
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1800);
+    try {
+      await navigator.clipboard.writeText(text);
+      setError("");
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setCopied(false);
+      setError("No se pudo copiar al portapapeles. Revisá los permisos del navegador y volvé a intentarlo.");
+    }
   }
 
   async function copyExternalPackage() {
+    if (isReading) {
+      setError("Esperá a que terminemos de leer los archivos antes de copiar el paquete.");
+      return;
+    }
     if (!externalReady) {
       setError("Pegá un fragmento o agregá un archivo con texto antes de copiar el paquete.");
       return;
     }
     const packageText = buildExternalPackage(destinationName, promptText, combinedText);
-    await navigator.clipboard.writeText(packageText);
-    setError("");
-    setCopiedPackage(true);
-    setPackageMessage(
-      `Paquete completo copiado: instrucción + ${externalPackagePlan.wordCount.toLocaleString("es-UY")} palabras de material.`,
-    );
-    window.setTimeout(() => setCopiedPackage(false), 1800);
+    try {
+      await navigator.clipboard.writeText(packageText);
+      setError("");
+      setCopiedPackage(true);
+      setPackageSnapshot({ material: combinedText, prompt: promptText, destination: destinationName });
+      setPackageMessage(
+        `Paquete completo copiado: instrucción + ${externalPackagePlan.wordCount.toLocaleString("es-UY")} palabras de material. Ahora abrí ${destinationName} y pegalo en el chat.`,
+      );
+      window.setTimeout(() => setCopiedPackage(false), 1800);
+    } catch {
+      setCopiedPackage(false);
+      setPackageSnapshot(null);
+      setPackageMessage("");
+      setError(
+        `No se pudo copiar el paquete. Usá el botón de descarga y adjuntá el archivo en ${destinationName}.`,
+      );
+    }
   }
 
   function downloadResult() {
@@ -1063,8 +1094,10 @@ ${recoveredSections ? `- ${recoveredSections} sección(es) se organizaron con el
       .replace(/[^a-z0-9áéíóúñ]+/gi, "-")
       .replace(/^-|-$/g, "");
     triggerDownload(blob, `paquete-para-${slug}.txt`);
+    setError("");
+    setPackageSnapshot({ material: combinedText, prompt: promptText, destination: destinationName });
     setPackageMessage(
-      `Paquete completo descargado: instrucción + ${externalPackagePlan.sourceCount} material(es) con ${externalPackagePlan.wordCount.toLocaleString("es-UY")} palabras.`,
+      `Paquete completo descargado: instrucción + ${externalPackagePlan.sourceCount} material(es) con ${externalPackagePlan.wordCount.toLocaleString("es-UY")} palabras. Ahora abrí ${destination} y adjuntá el archivo .txt.`,
     );
   }
 
@@ -1116,8 +1149,9 @@ Apunte Claro no envió ningún archivo automáticamente.
       });
       triggerDownload(blob, `paquete-dividido-para-${slug}.zip`);
       setPackageMessage(
-        `Paquete dividido descargado: ${parts.length} partes numeradas + instrucción de integración final.`,
+        `Paquete dividido descargado: ${parts.length} partes numeradas + instrucción de integración final. Abrí ${destination} y seguí 00-COMO-USAR.txt para enviarlas en orden.`,
       );
+      setPackageSnapshot({ material: combinedText, prompt: promptText, destination: destinationName });
     } catch {
       setError("No se pudo crear el ZIP. Podés descargar todo en un único archivo .txt.");
     } finally {
@@ -1166,18 +1200,28 @@ Apunte Claro no envió ningún archivo automáticamente.
                   </p>
                 </div>
 
+                <div className="mode-direct-start">
+                  <div>
+                    <span className="mode-kicker">Opción directa</span>
+                    <strong>Prepará tu paquete para ChatGPT</strong>
+                    <p>Agregá tus apuntes y decidí cuándo compartir el paquete.</p>
+                  </div>
+                  <button type="button" className="primary-button" onClick={() => chooseMode("chatgpt")}>
+                    Empezar con ChatGPT <span aria-hidden="true">→</span>
+                  </button>
+                </div>
+
                 <div className="mode-options">
                   <button
                     type="button"
-                    className="mode-option mode-option-recommended"
+                    className="mode-option"
                     onClick={() => setChooserStep("provider")}
                   >
-                    <span className="mode-badge">Recomendado</span>
                     <span className="mode-icon" aria-hidden="true">✦</span>
                     <span className="mode-option-copy">
-                      <strong>Preparar con otra IA</strong>
-                      <small>Mejor para textos extensos</small>
-                      <span>Elegí ChatGPT, Gemini, Copilot, Claude u otra. Te damos el pedido y el material listos.</span>
+                      <strong>Elegir otra IA</strong>
+                      <small>Gemini, Copilot, Claude y más</small>
+                      <span>Preparamos el pedido y el material para la herramienta que elijas.</span>
                     </span>
                     <span className="mode-arrow" aria-hidden="true">→</span>
                   </button>
@@ -1848,7 +1892,7 @@ Apunte Claro no envió ningún archivo automáticamente.
                   )}
                 </div>
               )}
-              {packageMessage && useMode && useMode !== "local" && (
+              {packageSnapshotIsCurrent && packageMessage && useMode && useMode !== "local" && (
                 <div className="package-success" role="status">
                   <span>✓</span>
                   {packageMessage}
@@ -1862,10 +1906,12 @@ Apunte Claro no envió ningún archivo automáticamente.
                     <button
                       type="button"
                       className="primary-button generate-button copy-package-button"
-                      disabled={!externalReady}
+                      disabled={isReading || !externalReady}
                       onClick={copyExternalPackage}
                     >
-                      {copiedPackage ? "Paquete completo copiado ✓" : "Copiar paquete completo"}
+                      {packageSnapshotIsCurrent && copiedPackage
+                        ? "Paquete completo copiado ✓"
+                        : "Copiar paquete completo"}
                     </button>
                     <button
                       type="button"
