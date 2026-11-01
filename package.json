@@ -22,7 +22,7 @@
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "^1.47.0",
+    "@cloudflare/vite-plugin": "^1.66.0",
     "@eslint/js": "^10.0.1",
     "@tailwindcss/postcss": "4.2.1",
     "@types/dom-chromium-ai": "^0.0.17",
@@ -40,7 +40,7 @@
     "typescript-eslint": "^8.65.0",
     "vinext": "0.0.50",
     "vite": "^8.1.5",
-    "wrangler": "^4.114.0"
+    "wrangler": "^4.154.0"
   },
   "overrides": {
     "postcss": "8.5.23",
